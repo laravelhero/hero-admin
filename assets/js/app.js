@@ -1471,7 +1471,7 @@
 			<button data-newtype="posts"><span class="hero-row-icon">${ icon( 'pilcrow' ) }</span> Post</button>
 			<button data-newtype="pages"><span class="hero-row-icon">${ icon( 'file' ) }</span> Page</button>
 			${ cptRowsHtml() }
-			<button data-newtype="blocks"><span class="hero-row-icon">${ icon( 'block' ) }</span> ${ __( 'Pattern' ) }</button>
+			<button data-newtype="blocks"><span class="hero-row-icon">${ icon( 'block' ) }</span> ${ __( 'Section' ) }</button>
 			${ builderRows }`;
 		menu.innerHTML = menuHtml();
 		const r = btn.getBoundingClientRect();
@@ -3286,7 +3286,7 @@
 			.filter( ( t ) => t.viewable && t.rest_base && ! HIDDEN_TYPES.includes( t.slug ) )
 			.map( ( t ) => ( { slug: t.slug, restBase: t.rest_base, name: decodeEntities( t.name ) } ) );
 		const wpb = list.find( ( t ) => t.slug === 'wp_block' && t.rest_base );
-		if ( wpb ) kept.push( { slug: 'wp_block', restBase: wpb.rest_base, name: decodeEntities( wpb.name ) || __( 'Patterns' ) } );
+		if ( wpb ) kept.push( { slug: 'wp_block', restBase: wpb.rest_base, name: decodeEntities( wpb.name ) || __( 'Sections' ) } );
 		return kept;
 	}
 	let typesPromise = null;
@@ -17627,7 +17627,7 @@
 			${ hint ? `<span class="hero-island-hint" aria-hidden="true">${ esc( hint ) }</span>` : '' }
 			${ imgBadge ? `<button class="hero-imgtool-badge" type="button" data-imgbadge="1" tabindex="-1">${ esc( imgBadge ) }</button>` : '' }
 			${ ctedBadge ? `<button class="hero-imgtool-badge" type="button" data-ctedbadge="1" tabindex="-1">${ esc( ctedBadge ) }</button>` : '' }
-			${ patternRef ? `<button class="hero-pattern-cover" data-patternedit="${ esc( patternRef ) }" type="button" aria-label="${ esc( __( 'Edit this pattern' ) ) }"><span class="hero-pattern-badge">${ esc( __( 'Edit pattern' ) ) } ↗</span></button>` : '' }
+			${ patternRef ? `<button class="hero-pattern-cover" data-patternedit="${ esc( patternRef ) }" type="button" aria-label="${ esc( __( 'Edit this section' ) ) }"><span class="hero-pattern-badge">${ esc( __( 'Edit section' ) ) } ↗</span></button>` : '' }
 			<div class="hero-island-preview" data-preview="${ idx }">${ inner || '<div class="hero-island-empty">Dynamic block — rendered on the site</div>' }</div>
 		</div>`;
 	}
@@ -28056,7 +28056,7 @@
 			userPatternsPromise = api( 'wp/v2/blocks?context=edit&status=publish&per_page=100&_fields=id,title,meta,wp_pattern_sync_status' )
 				.then( ( list ) => ( Array.isArray( list ) ? list : [] ).map( ( b ) => ( {
 					id: b.id,
-					title: decodeEntities( ( b.title && ( b.title.raw != null ? b.title.raw : b.title.rendered ) ) || '' ) || __( '(untitled pattern)' ),
+					title: decodeEntities( ( b.title && ( b.title.raw != null ? b.title.raw : b.title.rendered ) ) || '' ) || __( '(untitled section)' ),
 					synced: b.wp_pattern_sync_status !== 'unsynced',
 				} ) ) )
 				.catch( () => {
@@ -28100,7 +28100,7 @@
 		const ed = state.editor;
 		if ( ! body || ! ed || ! anchor.isConnected ) return;
 		const segs = tokenizeBlocks( content.trim() );
-		if ( ! segs ) { toast( 'This pattern’s markup can’t be parsed safely', true ); return; }
+		if ( ! segs ) { toast( 'This section’s markup can’t be parsed safely', true ); return; }
 		if ( ! ed.islands ) ed.islands = [];
 		let count = 0;
 		segs.forEach( ( seg ) => {
