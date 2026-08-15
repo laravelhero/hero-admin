@@ -35,43 +35,6 @@ class Hero_Admin_CPT {
 		add_action( 'init', array( __CLASS__, 'register_native_types' ), 5 );
 		add_action( 'init', array( __CLASS__, 'register_native_taxonomies' ), 6 );
 		add_action( 'rest_api_init', array( __CLASS__, 'register_routes' ) );
-		add_filter( 'register_post_type_args', array( __CLASS__, 'relabel_wp_block' ), 10, 2 );
-	}
-
-	/**
-	 * Rebrand core "Patterns" (wp_block) as "Sections" everywhere the label
-	 * surfaces — Hero's Content tabs and + New menu read wp/v2/types, and
-	 * wp-admin picks the labels up too. Slug, storage and behavior stay
-	 * wp_block; only the words change.
-	 *
-	 * @param array  $args Post type registration args.
-	 * @param string $name Post type slug.
-	 * @return array
-	 */
-	public static function relabel_wp_block( $args, $name ) {
-		if ( 'wp_block' !== $name ) {
-			return $args;
-		}
-		$labels         = isset( $args['labels'] ) ? (array) $args['labels'] : array();
-		$args['labels'] = array_merge(
-			$labels,
-			array(
-				'name'          => 'Sections',
-				'singular_name' => 'Section',
-				'menu_name'     => 'Sections',
-				'all_items'     => 'All Sections',
-				'add_new'       => 'Add Section',
-				'add_new_item'  => 'Add Section',
-				'new_item'      => 'New Section',
-				'edit_item'     => 'Edit Section',
-				'view_item'     => 'View Section',
-				'view_items'    => 'View Sections',
-				'search_items'  => 'Search Sections',
-				'not_found'     => 'No sections found.',
-				'item_updated'  => 'Section updated.',
-			)
-		);
-		return $args;
 	}
 
 	/**

@@ -754,6 +754,7 @@
 		widgets: [ __( 'Widgets' ), __( 'Sidebars & footers' ) ],
 		extensions: [ __( 'Extensions' ), __( 'Installed' ) ],
 		posttypes: [ __( 'Structure' ), __( 'Post types, taxonomies & terms' ) ],
+		sections: [ __( 'Sections' ), __( 'Website building blocks' ) ],
 		settings: [ __( 'Settings' ), __( 'Site' ) ],
 		system: [ __( 'System' ), __( 'Diagnostics' ) ],
 		database: [ __( 'Database' ), __( 'Read-only viewer' ) ],
@@ -1471,7 +1472,7 @@
 			<button data-newtype="posts"><span class="hero-row-icon">${ icon( 'pilcrow' ) }</span> Post</button>
 			<button data-newtype="pages"><span class="hero-row-icon">${ icon( 'file' ) }</span> Page</button>
 			${ cptRowsHtml() }
-			<button data-newtype="blocks"><span class="hero-row-icon">${ icon( 'block' ) }</span> ${ __( 'Section' ) }</button>
+			<button data-newtype="blocks"><span class="hero-row-icon">${ icon( 'block' ) }</span> ${ __( 'Pattern' ) }</button>
 			${ builderRows }`;
 		menu.innerHTML = menuHtml();
 		const r = btn.getBoundingClientRect();
@@ -1708,6 +1709,9 @@
 			{ id: 'content', label: __( 'Content' ), icon: 'doc', count: true },
 			{ id: 'media', label: __( 'Media' ), icon: 'img' },
 		];
+		if ( B.caps.editPages ) {
+			navItems.push( { id: 'sections', label: __( 'Sections' ), icon: 'block' } );
+		}
 		if ( commentsAvailable() ) {
 			navItems.push( { id: 'comments', label: __( 'Comments' ), icon: 'chat', commentCount: true } );
 		}
@@ -1786,7 +1790,7 @@
 	// Hiding is cosmetic (routes stay reachable by URL and ⌘K); restore
 	// lives on Your profile, and admins can restore for others from the
 	// user edit page.
-	const CORE_HIDEABLE_NAV = [ 'content', 'media', 'comments', 'orders', 'subscriptions', 'products', 'coupons', 'customers', 'users', 'terms', 'menus', 'widgets', 'posttypes', 'extensions', 'database', 'system', 'settings' ];
+	const CORE_HIDEABLE_NAV = [ 'content', 'media', 'sections', 'comments', 'orders', 'subscriptions', 'products', 'coupons', 'customers', 'users', 'terms', 'menus', 'widgets', 'posttypes', 'extensions', 'database', 'system', 'settings' ];
 	const isCoreHidden = ( id ) => ( B.hidden || [] ).some( ( h ) => h.id === 'core:' + id );
 	// Sites commonly hide wp-admin menus for clients (remove_menu_page on
 	// admin_menu — Comments is the classic). The notices capture pageload
@@ -3286,7 +3290,7 @@
 			.filter( ( t ) => t.viewable && t.rest_base && ! HIDDEN_TYPES.includes( t.slug ) )
 			.map( ( t ) => ( { slug: t.slug, restBase: t.rest_base, name: decodeEntities( t.name ) } ) );
 		const wpb = list.find( ( t ) => t.slug === 'wp_block' && t.rest_base );
-		if ( wpb ) kept.push( { slug: 'wp_block', restBase: wpb.rest_base, name: decodeEntities( wpb.name ) || __( 'Sections' ) } );
+		if ( wpb ) kept.push( { slug: 'wp_block', restBase: wpb.rest_base, name: decodeEntities( wpb.name ) || __( 'Patterns' ) } );
 		return kept;
 	}
 	let typesPromise = null;
@@ -17629,7 +17633,7 @@
 			${ hint ? `<span class="hero-island-hint" aria-hidden="true">${ esc( hint ) }</span>` : '' }
 			${ imgBadge ? `<button class="hero-imgtool-badge" type="button" data-imgbadge="1" tabindex="-1">${ esc( imgBadge ) }</button>` : '' }
 			${ ctedBadge ? `<button class="hero-imgtool-badge" type="button" data-ctedbadge="1" tabindex="-1">${ esc( ctedBadge ) }</button>` : '' }
-			${ patternRef ? `<button class="hero-pattern-cover" data-patternedit="${ esc( patternRef ) }" type="button" aria-label="${ esc( __( 'Edit this section' ) ) }"><span class="hero-pattern-badge">${ esc( __( 'Edit section' ) ) } ↗</span></button>` : '' }
+			${ patternRef ? `<button class="hero-pattern-cover" data-patternedit="${ esc( patternRef ) }" type="button" aria-label="${ esc( __( 'Edit this pattern' ) ) }"><span class="hero-pattern-badge">${ esc( __( 'Edit pattern' ) ) } ↗</span></button>` : '' }
 			<div class="hero-island-preview" data-preview="${ idx }">${ inner || '<div class="hero-island-empty">Dynamic block — rendered on the site</div>' }</div>
 		</div>`;
 	}
@@ -28058,7 +28062,7 @@
 			userPatternsPromise = api( 'wp/v2/blocks?context=edit&status=publish&per_page=100&_fields=id,title,meta,wp_pattern_sync_status' )
 				.then( ( list ) => ( Array.isArray( list ) ? list : [] ).map( ( b ) => ( {
 					id: b.id,
-					title: decodeEntities( ( b.title && ( b.title.raw != null ? b.title.raw : b.title.rendered ) ) || '' ) || __( '(untitled section)' ),
+					title: decodeEntities( ( b.title && ( b.title.raw != null ? b.title.raw : b.title.rendered ) ) || '' ) || __( '(untitled pattern)' ),
 					synced: b.wp_pattern_sync_status !== 'unsynced',
 				} ) ) )
 				.catch( () => {
@@ -28102,7 +28106,7 @@
 		const ed = state.editor;
 		if ( ! body || ! ed || ! anchor.isConnected ) return;
 		const segs = tokenizeBlocks( content.trim() );
-		if ( ! segs ) { toast( 'This section’s markup can’t be parsed safely', true ); return; }
+		if ( ! segs ) { toast( 'This pattern’s markup can’t be parsed safely', true ); return; }
 		if ( ! ed.islands ) ed.islands = [];
 		let count = 0;
 		segs.forEach( ( seg ) => {
@@ -30794,6 +30798,63 @@
 			</div>`;
 		}
 
+		if ( m.type === 'section-new' ) {
+			return `
+			<div class="hero-modal-overlay" id="hero-modal-overlay">
+				<div class="hero-modal">
+					<div class="hero-modal-head">
+						<div class="hero-modal-title">Add section</div>
+						<button class="hero-x-btn" id="hero-modal-close">×</button>
+					</div>
+					<div class="hero-modal-form">
+						<div class="hero-field-label">Pick a template — fields come ready for your frontend</div>
+						<div class="hero-sec-tpls">
+							${ m.catalog.templates.map( ( t ) => `
+							<button type="button" class="hero-sec-tpl" data-sectpl="${ esc( t.id ) }">
+								<span class="hero-sec-tpl-name">${ esc( t.label ) }</span>
+								<span class="hero-sec-tpl-desc">${ esc( t.desc ) }</span>
+							</button>` ).join( '' ) }
+						</div>
+					</div>
+				</div>
+			</div>`;
+		}
+
+		if ( m.type === 'section' ) {
+			const s = m.item;
+			const tpl = sectionTplOf( m.catalog, s.template );
+			return `
+			<div class="hero-modal-overlay" id="hero-modal-overlay">
+				<div class="hero-modal wide">
+					<div class="hero-modal-head">
+						<div class="hero-modal-title-block">
+							<div class="hero-modal-title">${ esc( s.title || 'Section' ) }</div>
+							<div class="hero-modal-sub">${ esc( tpl ? tpl.label : s.template ) } · <span class="mono">${ esc( m.catalog.base ) }/${ esc( s.slug ) }</span></div>
+						</div>
+						<span class="hero-status ${ s.status }">${ s.status === 'publish' ? 'Published' : 'Draft' }</span>
+						<button class="hero-x-btn" id="hero-modal-close">×</button>
+					</div>
+					<div class="hero-modal-form">
+						<div><div class="hero-field-label">Name (for you)</div>
+						<input class="hero-input" data-secmeta="title" value="${ esc( s.title ) }"></div>
+						<div><div class="hero-field-label">Slug (in the API URL)</div>
+						<input class="hero-input mono" data-secmeta="slug" value="${ esc( s.slug ) }"></div>
+						<div class="hero-cpt-checks">
+							${ structureToggleHtml( 'data-secflag', 'publish', 'Published — visible in the public API', s.status === 'publish', true ) }
+						</div>
+						${ ( tpl ? tpl.fields : [] ).map( ( f ) => `<div>
+							<div class="hero-field-label">${ esc( f.label ) }</div>
+							${ f.type === 'repeat' ? sectionRepeatHtml( f, s.data[ f.key ] ) : sectionFieldHtml( f, s.data[ f.key ] ) }
+						</div>` ).join( '' ) }
+					</div>
+					<div class="hero-modal-actions">
+						<button class="hero-btn-primary" id="hero-section-save">Save</button>
+						<button class="hero-btn-soft danger" id="hero-section-delete">${ icon( 'trash' ) } Delete</button>
+					</div>
+				</div>
+			</div>`;
+		}
+
 		if ( m.type === 'cpt' ) {
 			const t = m.item;
 			const isNew = ! t;
@@ -31677,6 +31738,82 @@
 
 		if ( m.type === 'product' ) {
 			bindProductDetail( m );
+		}
+
+		if ( m.type === 'section-new' ) {
+			$$( '[data-sectpl]', $( '.hero-modal' ) ).forEach( ( btn ) =>
+				btn.addEventListener( 'click', async () => {
+					btn.disabled = true;
+					try {
+						const created = await api( 'hero-admin/v1/sections', {
+							method: 'POST',
+							body: JSON.stringify( { template: btn.dataset.sectpl } ),
+						} );
+						state.cache.sectionsView = null;
+						state.modal = { type: 'section', item: created, catalog: { ...m.catalog, sections: [] } };
+						renderOverlays();
+						if ( state.route === 'sections' ) renderSections();
+					} catch ( e ) {
+						toast( e.message, true );
+						btn.disabled = false;
+					}
+				} )
+			);
+		}
+
+		if ( m.type === 'section' ) {
+			const modal = $( '.hero-modal' );
+			bindStructureToggles( modal );
+			// Add / remove repeatable rows: fold the typed values into m.item
+			// first so a re-render doesn't eat unsaved edits.
+			$$( '[data-secadd]', modal ).forEach( ( btn ) =>
+				btn.addEventListener( 'click', () => {
+					collectSectionForm( m, modal );
+					const key = btn.dataset.secadd;
+					m.item.data[ key ] = m.item.data[ key ] || [];
+					m.item.data[ key ].push( {} );
+					renderOverlays();
+				} )
+			);
+			$$( '[data-secdel]', modal ).forEach( ( btn ) =>
+				btn.addEventListener( 'click', () => {
+					collectSectionForm( m, modal );
+					const key = btn.closest( '[data-secrep]' ).dataset.secrep;
+					m.item.data[ key ].splice( Number( btn.dataset.secdel ), 1 );
+					renderOverlays();
+				} )
+			);
+			$( '#hero-section-save' ).addEventListener( 'click', async ( e ) => {
+				collectSectionForm( m, modal );
+				e.currentTarget.disabled = true;
+				e.currentTarget.textContent = 'Saving…';
+				try {
+					await api( 'hero-admin/v1/sections/' + m.item.id, {
+						method: 'POST',
+						body: JSON.stringify( { title: m.item.title, slug: m.item.slug, status: m.item.status, data: m.item.data } ),
+					} );
+					toast( 'Section saved' );
+					state.cache.sectionsView = null;
+					closeModal();
+					if ( state.route === 'sections' ) renderSections();
+				} catch ( err ) {
+					toast( err.message, true );
+					e.currentTarget.disabled = false;
+					e.currentTarget.textContent = 'Save';
+				}
+			} );
+			$( '#hero-section-delete' ).addEventListener( 'click', async () => {
+				if ( ! confirm( `Delete “${ m.item.title }”? The frontend loses this section's data.` ) ) return;
+				try {
+					await api( 'hero-admin/v1/sections/' + m.item.id, { method: 'DELETE' } );
+					toast( 'Section deleted' );
+					state.cache.sectionsView = null;
+					closeModal();
+					if ( state.route === 'sections' ) renderSections();
+				} catch ( err ) {
+					toast( err.message, true );
+				}
+			} );
 		}
 
 		if ( m.type === 'cpt' ) {
@@ -34851,6 +34988,125 @@
 		}
 	}
 
+	/* ===== Sections — structured building blocks for the headless frontend ===== */
+
+	function sectionTplOf( c, id ) {
+		return ( c.templates || [] ).find( ( t ) => t.id === id ) || null;
+	}
+
+	function renderSections() {
+		const view = $( '#hero-view' );
+		const c = state.cache.sectionsView;
+		if ( ! c ) {
+			view.innerHTML = `<div class="hero-loading">${ esc( __( 'Loading sections…' ) ) }</div>`;
+			api( 'hero-admin/v1/sections' )
+				.then( ( r ) => { state.cache.sectionsView = r; if ( state.route === 'sections' ) renderSections(); } )
+				.catch( ( e ) => { view.innerHTML = `<div class="hero-empty">${ esc( e.message ) }</div>`; } );
+			return;
+		}
+		const fmtWhen = ( iso ) => new Date( iso ).toLocaleDateString( undefined, { month: 'short', day: 'numeric', year: 'numeric' } );
+		view.innerHTML = `
+		<div class="hero-toolbar">
+			<div class="hero-toolbar-meta">${ metaLabel( c.sections.length, 'section' ) }</div>
+			<span class="hero-row-meta hero-cell-clip">API: <a class="hero-permalink" href="${ esc( c.base ) }" target="_blank" rel="noopener">${ esc( c.base ) }</a></span>
+			<button class="hero-btn-soft" id="hero-add-section">${ icon( 'plus' ) } Add section</button>
+		</div>
+		<div class="hero-card hero-table">
+			<div class="hero-table-head hero-sec-cols">
+				<div>Name</div><div>Template</div><div>Status</div><div>Updated</div><div></div>
+			</div>
+			${ c.sections.length ? c.sections.map( ( s ) => {
+				const tpl = sectionTplOf( c, s.template );
+				return `
+				<div class="hero-table-row hero-sec-cols" data-section="${ s.id }">
+					<div class="hero-cell-clip">
+						<div class="hero-row-title">${ esc( s.title ) }</div>
+						<div class="hero-row-slug mono">${ esc( s.slug ) }</div>
+					</div>
+					<div class="hero-row-meta">${ esc( tpl ? tpl.label : s.template ) }</div>
+					<div><span class="hero-status ${ s.status }">${ s.status === 'publish' ? 'Published' : 'Draft' }</span></div>
+					<div class="hero-row-meta">${ esc( fmtWhen( s.modified ) ) }</div>
+					<div class="hero-row-arrow">›</div>
+				</div>`;
+			} ).join( '' ) : `<div class="hero-empty">No sections yet. Hit <b>Add section</b> to build your first one — Hero banner, Testimonials, Team…</div>` }
+		</div>`;
+
+		$( '#hero-add-section', view ).addEventListener( 'click', () => {
+			state.modal = { type: 'section-new', catalog: c };
+			renderOverlays();
+		} );
+		$$( '.hero-table-row[data-section]', view ).forEach( ( row ) =>
+			row.addEventListener( 'click', () => {
+				const s = c.sections.find( ( x ) => x.id === Number( row.dataset.section ) );
+				if ( s ) {
+					state.modal = { type: 'section', item: JSON.parse( JSON.stringify( s ) ), catalog: c };
+					renderOverlays();
+				}
+			} )
+		);
+	}
+
+	/** One field control of the section editor. */
+	function sectionFieldHtml( f, value ) {
+		if ( f.type === 'textarea' ) {
+			return `<textarea class="hero-input" rows="3" data-secfield="${ esc( f.key ) }">${ esc( value || '' ) }</textarea>`;
+		}
+		if ( f.type === 'image' ) {
+			return `<input class="hero-input mono" data-secfield="${ esc( f.key ) }" value="${ esc( value || '' ) }" placeholder="https://… (paste from Media library)">`;
+		}
+		return `<input class="hero-input" data-secfield="${ esc( f.key ) }" value="${ esc( value || '' ) }">`;
+	}
+
+	function sectionRepeatHtml( f, rows ) {
+		const rowHtml = ( row, i ) => `
+			<div class="hero-sec-row" data-secrow="${ i }">
+				<div class="hero-sec-row-fields">
+					${ f.fields.map( ( sf ) => `<div>
+						<div class="hero-field-label">${ esc( sf.label ) }</div>
+						${ sf.type === 'textarea'
+							? `<textarea class="hero-input" rows="2" data-secsub="${ esc( sf.key ) }">${ esc( row[ sf.key ] || '' ) }</textarea>`
+							: `<input class="hero-input${ sf.type === 'image' ? ' mono' : '' }" data-secsub="${ esc( sf.key ) }" value="${ esc( row[ sf.key ] || '' ) }"${ sf.type === 'image' ? ' placeholder="https://…"' : '' }>` }
+					</div>` ).join( '' ) }
+				</div>
+				<button type="button" class="hero-x-btn" data-secdel="${ i }" title="Remove ${ esc( f.item || 'item' ) }">×</button>
+			</div>`;
+		return `<div class="hero-sec-rep" data-secrep="${ esc( f.key ) }">
+			${ ( rows || [] ).map( rowHtml ).join( '' ) }
+			<button type="button" class="hero-btn-soft" data-secadd="${ esc( f.key ) }">${ icon( 'plus' ) } Add ${ esc( f.item || 'item' ) }</button>
+		</div>`;
+	}
+
+	/** Read the whole section form back into m.item (source of truth). */
+	function collectSectionForm( m, modal ) {
+		const tpl = sectionTplOf( m.catalog, m.item.template );
+		const nameEl = $( '[data-secmeta="title"]', modal );
+		if ( nameEl ) m.item.title = nameEl.value.trim();
+		const slugEl = $( '[data-secmeta="slug"]', modal );
+		if ( slugEl ) m.item.slug = slugEl.value.trim();
+		const pubSw = $( '[data-secflag="publish"]', modal );
+		if ( pubSw ) m.item.status = pubSw.classList.contains( 'on' ) ? 'publish' : 'draft';
+		if ( ! tpl ) return;
+		const data = {};
+		tpl.fields.forEach( ( f ) => {
+			if ( f.type === 'repeat' ) {
+				const rows = [];
+				$$( `[data-secrep="${ f.key }"] [data-secrow]`, modal ).forEach( ( rowEl ) => {
+					const row = {};
+					f.fields.forEach( ( sf ) => {
+						const input = $( `[data-secsub="${ sf.key }"]`, rowEl );
+						row[ sf.key ] = input ? input.value : '';
+					} );
+					rows.push( row );
+				} );
+				data[ f.key ] = rows;
+			} else {
+				const input = $( `[data-secfield="${ f.key }"]`, modal );
+				data[ f.key ] = input ? input.value : '';
+			}
+		} );
+		m.item.data = data;
+	}
+
 	function renderView() {
 		renderTopbar();
 		announceRoute();
@@ -34900,6 +35156,7 @@
 			case 'widgets': return renderWidgets();
 			case 'extensions': return renderExtensions();
 			case 'posttypes': return renderStructure();
+			case 'sections': return renderSections();
 			case 'settings': return renderSettings();
 			case 'system': return renderSystem();
 			case 'database': return renderDatabase();

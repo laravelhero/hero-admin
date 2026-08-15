@@ -2878,6 +2878,17 @@ button.hero-ac-item:hover { background: var(--hover); }
 /* ===== Post types ===== */
 .hero-cpt-cols { grid-template-columns: 1.4fr 1fr 120px 70px 60px 40px; }
 .hero-tax-cols { grid-template-columns: 1.4fr 1fr 120px 70px 90px 60px 40px; }
+.hero-sec-cols { grid-template-columns: 1.6fr 1fr 110px 120px 40px; }
+.hero-sec-tpls { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.hero-sec-tpl { display: flex; flex-direction: column; gap: 4px; text-align: left; padding: 12px 14px; font-family: inherit; background: var(--panel2); color: var(--text); border: 1px solid var(--border); border-radius: 12px; cursor: pointer; }
+.hero-sec-tpl:hover { border-color: var(--accent); background: var(--hover); }
+.hero-sec-tpl-name { font-weight: 600; font-size: 14px; }
+.hero-sec-tpl-desc { font-size: 12.5px; color: var(--text3); line-height: 1.45; }
+.hero-sec-rep { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
+.hero-sec-row { display: flex; gap: 8px; width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel2); }
+.hero-sec-row-fields { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 8px 10px; }
+.hero-sec-row-fields > div:has(textarea) { grid-column: 1 / -1; }
+.hero-sec-row .hero-x-btn { align-self: flex-start; }
 .hero-cpt-checks { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0 12px; }
 /* Structure-modal toggle rows: whole row is the click target. */
 .hero-cpt-toggle { display: flex; align-items: center; gap: 9px; font-size: 13.5px; font-weight: 500; padding: 5px 0; cursor: pointer; user-select: none; }
@@ -3782,6 +3793,9 @@ button.hero-ac-item:hover { background: var(--hover); }
   .hero-cpt-cols > :nth-child(2), .hero-cpt-cols > :nth-child(4),
   .hero-cpt-cols > :nth-child(5), .hero-cpt-cols > :nth-child(6) { display: none; }
   .hero-tax-cols { grid-template-columns: 1fr 100px; }
+  .hero-sec-cols { grid-template-columns: 1fr 90px; }
+  .hero-sec-cols > :nth-child(2), .hero-sec-cols > :nth-child(4), .hero-sec-cols > :nth-child(5) { display: none; }
+  .hero-sec-tpls, .hero-sec-row-fields { grid-template-columns: 1fr; }
   .hero-tax-cols > :nth-child(2), .hero-tax-cols > :nth-child(4),
   .hero-tax-cols > :nth-child(5), .hero-tax-cols > :nth-child(6),
   .hero-tax-cols > :nth-child(7) { display: none; }
