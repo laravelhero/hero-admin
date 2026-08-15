@@ -2877,6 +2877,7 @@ button.hero-ac-item:hover { background: var(--hover); }
 
 /* ===== Post types ===== */
 .hero-cpt-cols { grid-template-columns: 1.4fr 1fr 120px 70px 60px 40px; }
+.hero-tax-cols { grid-template-columns: 1.4fr 1fr 120px 70px 90px 60px 40px; }
 .hero-cpt-checks { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0 12px; }
 /* Structure-modal toggle rows: whole row is the click target. */
 .hero-cpt-toggle { display: flex; align-items: center; gap: 9px; font-size: 13.5px; font-weight: 500; padding: 5px 0; cursor: pointer; user-select: none; }
@@ -3780,6 +3781,10 @@ button.hero-ac-item:hover { background: var(--hover); }
   .hero-cpt-cols { grid-template-columns: 1fr 100px; }
   .hero-cpt-cols > :nth-child(2), .hero-cpt-cols > :nth-child(4),
   .hero-cpt-cols > :nth-child(5), .hero-cpt-cols > :nth-child(6) { display: none; }
+  .hero-tax-cols { grid-template-columns: 1fr 100px; }
+  .hero-tax-cols > :nth-child(2), .hero-tax-cols > :nth-child(4),
+  .hero-tax-cols > :nth-child(5), .hero-tax-cols > :nth-child(6),
+  .hero-tax-cols > :nth-child(7) { display: none; }
   /* Surface tables set their columns inline (unknown shape). A squeezed
      grid garbles headers and ellipses every cell to nothing (the 2026-08-08
      mobile round), so rows become stacked cards instead: header hidden

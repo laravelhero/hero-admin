@@ -259,7 +259,7 @@ class Hero_Admin_CPT {
 	}
 
 	private static function source_of( $slug ) {
-		if ( in_array( $slug, array( 'post', 'page', 'attachment' ), true ) ) {
+		if ( in_array( $slug, array( 'post', 'page', 'attachment', 'wp_block' ), true ) ) {
 			return 'core';
 		}
 		$hero = (array) get_option( self::OPTION, array() );
@@ -287,8 +287,11 @@ class Hero_Admin_CPT {
 				continue; // internals: revisions, nav items…
 			}
 			// Storage/plumbing types other plugins manage themselves.
-			if ( preg_match( '/^(acf-|wp_|edd_|elementor_)/', $pt->name )
-				|| in_array( $pt->name, array( 'attachment', 'shop_order', 'shop_coupon', 'shop_order_refund', 'scheduled-action', 'product_variation' ), true ) ) {
+			// wp_block (Sections) is the one wp_-prefixed type that IS daily
+			// content — Hero lists and edits it, so it belongs in Structure.
+			if ( 'wp_block' !== $pt->name
+				&& ( preg_match( '/^(acf-|wp_|edd_|elementor_)/', $pt->name )
+					|| in_array( $pt->name, array( 'attachment', 'shop_order', 'shop_coupon', 'shop_order_refund', 'scheduled-action', 'product_variation' ), true ) ) ) {
 				continue;
 			}
 			$counts = (array) wp_count_posts( $pt->name );

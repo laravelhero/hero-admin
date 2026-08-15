@@ -9271,6 +9271,7 @@
 			</div>` : '' }
 			<input class="hero-input hero-toolbar-search" id="hero-term-search" placeholder="Search ${ esc( tax.label.toLowerCase() ) }…" value="${ esc( state.termSearch || '' ) }">
 			<div class="hero-toolbar-meta">${ metaLabel( c.total, tax.item ) }</div>
+			<span class="hero-status publish" title="Terms served over the REST API at wp/v2/${ esc( tax.rest ) }">REST ✓</span>
 			${ tax.canEdit ? `<button class="hero-btn-soft" id="hero-add-term" style="margin-left:0;">${ icon( 'plus' ) } Add ${ esc( tax.item ) }</button>` : '' }
 		</div>
 		<div class="hero-card hero-table" id="hero-terms-table">
@@ -14535,11 +14536,11 @@
 				<button class="hero-btn-soft" id="hero-add-tax">${ icon( 'plus' ) } Add taxonomy</button>
 			</div>
 			<div class="hero-card hero-table">
-				<div class="hero-table-head hero-cpt-cols">
-					<div>Name</div><div>Attached to</div><div>Managed by</div><div>Terms</div><div>Type</div><div></div>
+				<div class="hero-table-head hero-tax-cols">
+					<div>Name</div><div>Attached to</div><div>Managed by</div><div>Terms</div><div>Type</div><div>REST</div><div></div>
 				</div>
 				${ tx.taxonomies.map( ( t ) => `
-				<div class="hero-table-row hero-cpt-cols" data-tax="${ esc( t.slug ) }">
+				<div class="hero-table-row hero-tax-cols" data-tax="${ esc( t.slug ) }">
 					<div class="hero-cell-clip">
 						<div class="hero-row-title">${ esc( t.plural ) }</div>
 						<div class="hero-row-slug">${ esc( t.slug ) }</div>
@@ -14548,6 +14549,7 @@
 					<div><span class="hero-status ${ t.editable ? 'publish' : 'draft' }">${ esc( CPT_SOURCE_LABEL[ t.source ] || t.source ) }</span></div>
 					<div class="hero-row-meta">${ B.caps.terms && t.count ? `<button type="button" class="hero-term-count" data-managetax="${ esc( t.slug ) }" title="Manage terms">${ t.count }</button>` : t.count }</div>
 					<div class="hero-row-meta">${ t.hierarchical ? 'Categories' : 'Tags' }</div>
+					<div class="hero-row-meta" title="${ t.show_in_rest ? 'Available over the REST API' : 'Not exposed over REST — Hero can’t manage its terms' }">${ t.show_in_rest ? '✓' : '—' }</div>
 					<div class="hero-row-arrow">›</div>
 				</div>` ).join( '' ) }
 			</div>`;
