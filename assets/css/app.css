@@ -2903,6 +2903,10 @@ button.hero-ac-item:hover { background: var(--hover); }
 .hero-ed-sec-x:hover { color: var(--text); }
 .hero-ed-sec-empty { font-size: 12.5px; color: var(--text3); }
 .hero-ed-sec-add { padding: 4px 10px; font-size: 12.5px; }
+.hero-ed-sec-edit { display: inline-flex; align-items: center; border: 0; background: none; color: var(--text3); cursor: pointer; padding: 0 2px; }
+.hero-ed-sec-edit:hover { color: var(--accent); }
+.hero-ed-sec-edit svg { width: 13px; height: 13px; }
+.hero-ed-sections.dropzone { border-color: var(--accent); background: var(--hover); }
 .hero-cpt-checks { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0 12px; }
 /* Structure-modal toggle rows: whole row is the click target. */
 .hero-cpt-toggle { display: flex; align-items: center; gap: 9px; font-size: 13.5px; font-weight: 500; padding: 5px 0; cursor: pointer; user-select: none; }

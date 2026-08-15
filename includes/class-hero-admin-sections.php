@@ -36,28 +36,57 @@ class Hero_Admin_Sections {
 	public static function register_api_field( $fields ) {
 		$fields['sections'] = array(
 			'label' => 'Sections',
-			'desc'  => 'Attached sections (published only), in their drag-and-drop order.',
+			'desc'  => '{ top, bottom } — attached sections (published only) in order; top renders above the content, bottom below.',
 			'value' => array( __CLASS__, 'attached_public' ),
 		);
 		return $fields;
 	}
 
-	/** Published attached sections of a post, shaped for the public API. */
+	/**
+	 * Published attached sections of a post for the public API, split by
+	 * position so the frontend renders top sections above the content and
+	 * bottom sections below it — each side in its drag-and-drop order.
+	 */
 	public static function attached_public( WP_Post $post ) {
-		$out = array();
-		foreach ( self::attached_ids( $post->ID ) as $sid ) {
-			$section = get_post( $sid );
+		$out = array(
+			'top'    => array(),
+			'bottom' => array(),
+		);
+		foreach ( self::attached_list( $post->ID ) as $row ) {
+			$section = get_post( $row['id'] );
 			if ( $section && self::POST_TYPE === $section->post_type && 'publish' === $section->post_status ) {
-				$out[] = self::public_shape( $section );
+				$out[ $row['position'] ][] = self::public_shape( $section );
 			}
 		}
 		return $out;
 	}
 
-	/** Sanitized ordered id list from meta. */
-	public static function attached_ids( $post_id ) {
+	/**
+	 * Ordered attachment list: rows of { id, position } where position is
+	 * 'top' (above the content) or 'bottom' (below it, the default).
+	 * Back-compat: a legacy plain id array reads as all-bottom.
+	 *
+	 * @return array<int,array{id:int,position:string}>
+	 */
+	public static function attached_list( $post_id ) {
 		$raw = get_post_meta( $post_id, self::META_ATTACH, true );
-		return is_array( $raw ) ? array_values( array_unique( array_map( 'absint', $raw ) ) ) : array();
+		if ( ! is_array( $raw ) ) {
+			return array();
+		}
+		$out  = array();
+		$seen = array();
+		foreach ( $raw as $row ) {
+			$id  = absint( is_array( $row ) ? ( $row['id'] ?? 0 ) : $row );
+			$pos = ( is_array( $row ) && isset( $row['position'] ) && 'top' === $row['position'] ) ? 'top' : 'bottom';
+			if ( $id && ! isset( $seen[ $id ] ) ) {
+				$seen[ $id ] = true;
+				$out[]       = array(
+					'id'       => $id,
+					'position' => $pos,
+				);
+			}
+		}
+		return $out;
 	}
 
 	/** Hidden storage type: no wp-admin UI, no public URLs — Hero owns the surface. */
@@ -84,6 +113,15 @@ class Hero_Admin_Sections {
 	 */
 	public static function templates() {
 		$templates = array(
+			'page-header'  => array(
+				'label'  => 'Page Header',
+				'desc'   => 'Title band above the content — heading, subtitle, background image.',
+				'fields' => array(
+					array( 'key' => 'title', 'label' => 'Title', 'type' => 'text' ),
+					array( 'key' => 'subtitle', 'label' => 'Subtitle', 'type' => 'text' ),
+					array( 'key' => 'image', 'label' => 'Background image URL', 'type' => 'image' ),
+				),
+			),
 			'hero'         => array(
 				'label'  => 'Hero',
 				'desc'   => 'Big opening banner — headline, supporting text, image, call-to-action buttons.',
@@ -388,21 +426,28 @@ class Hero_Admin_Sections {
 			);
 		}
 		return array(
-			'attached' => self::attached_ids( (int) $request['post'] ),
+			'attached' => self::attached_list( (int) $request['post'] ),
 			'catalog'  => $catalog,
 		);
 	}
 
 	public static function attached_save( WP_REST_Request $request ) {
-		$ids   = array();
-		foreach ( (array) $request->get_param( 'sections' ) as $sid ) {
-			$section = get_post( absint( $sid ) );
-			if ( $section && self::POST_TYPE === $section->post_type && ! in_array( (int) $section->ID, $ids, true ) ) {
-				$ids[] = (int) $section->ID;
+		$rows = array();
+		$seen = array();
+		foreach ( (array) $request->get_param( 'sections' ) as $row ) {
+			$id      = absint( is_array( $row ) ? ( $row['id'] ?? 0 ) : $row );
+			$section = $id ? get_post( $id ) : null;
+			if ( ! $section || self::POST_TYPE !== $section->post_type || isset( $seen[ $id ] ) ) {
+				continue;
 			}
+			$seen[ $id ] = true;
+			$rows[]      = array(
+				'id'       => $id,
+				'position' => ( is_array( $row ) && isset( $row['position'] ) && 'top' === $row['position'] ) ? 'top' : 'bottom',
+			);
 		}
-		update_post_meta( (int) $request['post'], self::META_ATTACH, $ids );
-		return array( 'saved' => true, 'attached' => $ids );
+		update_post_meta( (int) $request['post'], self::META_ATTACH, $rows );
+		return array( 'saved' => true, 'attached' => $rows );
 	}
 
 	private static function template_index() {

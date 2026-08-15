@@ -1595,6 +1595,7 @@
 	function icon( name ) {
 		const icons = {
 			grid: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
+			pencil: '<path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3Z"/>',
 			doc: '<path d="M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Z"/><path d="M8 8h8M8 12h8M8 16h5"/>',
 			img: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/>',
 			plug: '<path d="M14 7V5a2 2 0 0 0-2-2 2 2 0 0 0-2 2v2H7a1 1 0 0 0-1 1v3h2a2 2 0 0 1 0 4H6v3a1 1 0 0 0 1 1h3v-2a2 2 0 0 1 4 0v2h3a1 1 0 0 0 1-1v-3h-2a2 2 0 0 1 0-4h2V8a1 1 0 0 0-1-1Z"/>',
@@ -22738,8 +22739,9 @@
 					<button type="button" class="hero-tool" data-cmd="removeFormat" title="Clear formatting" aria-label="Clear formatting">${ icon( 'eraser' ) }</button>
 					<span class="hero-tool-hint" aria-hidden="true">type / for blocks</span>
 				</div>` }
-				${ ed.id && ed.type !== 'blocks' ? `<div class="hero-ed-sections" id="hero-ed-sections" hidden></div>` : '' }
+				${ ed.id && ed.type !== 'blocks' ? `<div class="hero-ed-sections" id="hero-ed-sections-top" data-zone="top" hidden></div>` : '' }
 				<div class="hero-editor-body${ locked ? ' locked' : '' }" id="hero-editor-body" contenteditable="${ locked ? 'false' : 'true' }" role="textbox" aria-multiline="true" aria-label="Post content"></div>
+				${ ed.id && ed.type !== 'blocks' ? `<div class="hero-ed-sections" id="hero-ed-sections-bottom" data-zone="bottom" hidden></div>` : '' }
 				<div class="hero-editor-stats" id="hero-editor-stats" role="button" tabindex="0" aria-label="Writing stats"></div>
 			</div>
 			<div class="hero-editor-side" id="hero-editor-side"></div>
@@ -31794,6 +31796,7 @@
 					state.cache.sectionsView = null;
 					closeModal();
 					if ( state.route === 'sections' ) renderSections();
+					if ( state.route === 'editor' && state.editor ) initEditorSections( state.editor );
 				} catch ( err ) {
 					toast( err.message, true );
 					e.currentTarget.disabled = false;
@@ -31808,6 +31811,7 @@
 					state.cache.sectionsView = null;
 					closeModal();
 					if ( state.route === 'sections' ) renderSections();
+					if ( state.route === 'editor' && state.editor ) initEditorSections( state.editor );
 				} catch ( err ) {
 					toast( err.message, true );
 				}
@@ -34986,21 +34990,20 @@
 		}
 	}
 
-	/* ===== Editor sections bar: attach, drag-to-reorder, remove =====
-	 * Sits on top of the content area for every saved post/page/CPT item.
-	 * Order is the API order: hero-api serves the 'sections' field exactly
-	 * as arranged here. Saves are instant (no coupling to post save). */
+	/* ===== Editor sections bars: attach, drag-to-reorder, edit, remove =====
+	 * TWO zones per post: 'top' renders above the content in the frontend,
+	 * 'bottom' (the default) below it. Chips drag within a zone to reorder
+	 * and across zones to move; ✎ opens the section's fields for editing.
+	 * ed.sectionsPanel.attached = [ { id, position } ] — the API order. */
 
 	function initEditorSections( ed ) {
-		const el = $( '#hero-ed-sections' );
-		if ( ! el || ! ed.id ) return;
+		if ( ! $( '#hero-ed-sections-top' ) || ! ed.id ) return;
 		api( `hero-admin/v1/sections/attached/${ ed.id }` )
 			.then( ( r ) => {
 				ed.sectionsPanel = { attached: r.attached, catalog: r.catalog };
-				el.hidden = false;
 				paintEditorSections( ed );
 			} )
-			.catch( () => { /* not permitted or endpoint missing — stay hidden */ } );
+			.catch( () => { /* not permitted or endpoint missing — bars stay hidden */ } );
 	}
 
 	let edSectionsSaveTimer = null;
@@ -35019,77 +35022,107 @@
 		}, 350 );
 	}
 
+	/** Open one attached section's fields for editing (the ✎ pencil). */
+	async function editAttachedSection( ed, id ) {
+		try {
+			const all = await api( 'hero-admin/v1/sections' );
+			const item = all.sections.find( ( s ) => s.id === id );
+			if ( ! item ) { toast( 'Section not found — was it deleted?', true ); return; }
+			state.cache.sectionsView = all;
+			state.modal = { type: 'section', item: JSON.parse( JSON.stringify( item ) ), catalog: all };
+			renderOverlays();
+		} catch ( e ) {
+			toast( e.message, true );
+		}
+	}
+
 	function paintEditorSections( ed ) {
-		const el = $( '#hero-ed-sections' );
 		const p = ed.sectionsPanel;
-		if ( ! el || ! p ) return;
+		if ( ! p ) return;
 		const byId = ( id ) => p.catalog.find( ( s ) => s.id === id );
-		const chips = p.attached.map( ( id ) => {
-			const s = byId( id );
-			if ( ! s ) return '';
-			return `
-			<span class="hero-ed-sec-chip${ s.status !== 'publish' ? ' draft' : '' }" draggable="true" data-secid="${ s.id }" title="${ s.status !== 'publish' ? 'Draft — hidden from the public API until published' : 'Drag to reorder' }">
-				<span class="hero-ed-sec-grip" aria-hidden="true">⠿</span>
-				<span class="hero-ed-sec-name">${ esc( s.title ) }</span>
-				<span class="hero-ed-sec-tpl">${ esc( s.template ) }</span>
-				<button type="button" class="hero-ed-sec-x" data-secremove="${ s.id }" title="Detach" aria-label="Detach ${ esc( s.title ) }">×</button>
-			</span>`;
-		} ).join( '' );
-		const addable = p.catalog.filter( ( s ) => ! p.attached.includes( s.id ) );
-		el.innerHTML = `
-			<span class="hero-ed-sec-label">${ icon( 'block' ) } Sections</span>
-			${ chips || `<span class="hero-ed-sec-empty">None attached — sections render above this content in your frontend.</span>` }
-			<span class="hero-ed-sec-addwrap">
-				<button type="button" class="hero-btn-soft hero-ed-sec-add" id="hero-ed-sec-add">${ icon( 'plus' ) } Add</button>
-			</span>`;
+		let draggingId = null;
 
-		// Attach picker (small popover menu, closes on outside click).
-		$( '#hero-ed-sec-add', el ).addEventListener( 'click', ( e ) => {
-			e.stopPropagation();
-			const open = $( '#hero-ed-sec-menu' );
-			if ( open ) { open.remove(); return; }
-			const menu = document.createElement( 'div' );
-			menu.id = 'hero-ed-sec-menu';
-			menu.className = 'hero-new-menu';
-			menu.innerHTML = ( addable.length ? addable.map( ( s ) =>
-				`<button data-secadd="${ s.id }"><span class="hero-row-icon">${ icon( 'block' ) }</span> ${ esc( s.title ) } <small class="hero-ed-sec-tpl">${ esc( s.template ) }</small></button>` ).join( '' )
-				: `<div class="hero-new-menu-label">Every section is already attached</div>` )
-				+ `<button data-secmanage><span class="hero-row-icon">${ icon( 'gear' ) }</span> Manage sections</button>`;
-			const r = e.currentTarget.getBoundingClientRect();
-			menu.style.top = ( r.bottom + 6 ) + 'px';
-			menu.style.left = Math.min( r.left, window.innerWidth - 280 ) + 'px';
-			document.body.appendChild( menu );
-			$$( 'button[data-secadd]', menu ).forEach( ( b ) =>
-				b.addEventListener( 'click', () => {
-					menu.remove();
-					p.attached.push( Number( b.dataset.secadd ) );
-					paintEditorSections( ed );
-					saveEditorSections( ed );
-				} )
-			);
-			const manage = $( 'button[data-secmanage]', menu );
-			if ( manage ) manage.addEventListener( 'click', () => { menu.remove(); go( 'sections' ); } );
-			setTimeout( () => {
-				const close = ( ev ) => {
-					if ( ! menu.contains( ev.target ) ) menu.remove();
-					document.removeEventListener( 'click', close );
-				};
-				document.addEventListener( 'click', close );
-			}, 0 );
-		} );
+		const paintZone = ( zone ) => {
+			const el = $( `#hero-ed-sections-${ zone }` );
+			if ( ! el ) return;
+			const rows = p.attached.filter( ( r ) => r.position === zone );
+			const chips = rows.map( ( row ) => {
+				const s = byId( row.id );
+				if ( ! s ) return '';
+				return `
+				<span class="hero-ed-sec-chip${ s.status !== 'publish' ? ' draft' : '' }" draggable="true" data-secid="${ s.id }" title="${ s.status !== 'publish' ? 'Draft — hidden from the public API until published' : 'Drag to reorder, or into the other bar to move it' }">
+					<span class="hero-ed-sec-grip" aria-hidden="true">⠿</span>
+					<span class="hero-ed-sec-name">${ esc( s.title ) }</span>
+					<span class="hero-ed-sec-tpl">${ esc( s.template ) }</span>
+					<button type="button" class="hero-ed-sec-edit" data-secedit="${ s.id }" title="Edit this section's fields" aria-label="Edit ${ esc( s.title ) }">${ icon( 'pencil' ) }</button>
+					<button type="button" class="hero-ed-sec-x" data-secremove="${ s.id }" title="Detach" aria-label="Detach ${ esc( s.title ) }">×</button>
+				</span>`;
+			} ).join( '' );
+			el.hidden = false;
+			el.innerHTML = `
+				<span class="hero-ed-sec-label">${ icon( 'block' ) } ${ zone === 'top' ? 'Above content' : 'Below content' }</span>
+				${ chips || `<span class="hero-ed-sec-empty">${ zone === 'top' ? 'e.g. a Page Header — renders before the content.' : 'Renders after the content in your frontend.' }</span>` }
+				<span class="hero-ed-sec-addwrap">
+					<button type="button" class="hero-btn-soft hero-ed-sec-add" data-seczoneadd="${ zone }">${ icon( 'plus' ) } Add</button>
+				</span>`;
+		};
+		paintZone( 'top' );
+		paintZone( 'bottom' );
 
-		// Detach.
-		$$( '[data-secremove]', el ).forEach( ( b ) =>
+		const attachedIds = p.attached.map( ( r ) => r.id );
+		const addable = p.catalog.filter( ( s ) => ! attachedIds.includes( s.id ) );
+
+		$$( '[data-seczoneadd]' ).forEach( ( addBtn ) =>
+			addBtn.addEventListener( 'click', ( e ) => {
+				e.stopPropagation();
+				const zone = addBtn.dataset.seczoneadd;
+				const open = $( '#hero-ed-sec-menu' );
+				if ( open ) { open.remove(); return; }
+				const menu = document.createElement( 'div' );
+				menu.id = 'hero-ed-sec-menu';
+				menu.className = 'hero-new-menu';
+				menu.innerHTML = ( addable.length ? addable.map( ( s ) =>
+					`<button data-secadd="${ s.id }"><span class="hero-row-icon">${ icon( 'block' ) }</span> ${ esc( s.title ) } <small class="hero-ed-sec-tpl">${ esc( s.template ) }</small></button>` ).join( '' )
+					: `<div class="hero-new-menu-label">Every section is already attached</div>` )
+					+ `<button data-secmanage><span class="hero-row-icon">${ icon( 'gear' ) }</span> Manage sections</button>`;
+				const r = addBtn.getBoundingClientRect();
+				menu.style.top = ( r.bottom + 6 ) + 'px';
+				menu.style.left = Math.min( r.left, window.innerWidth - 280 ) + 'px';
+				document.body.appendChild( menu );
+				$$( 'button[data-secadd]', menu ).forEach( ( b ) =>
+					b.addEventListener( 'click', () => {
+						menu.remove();
+						p.attached.push( { id: Number( b.dataset.secadd ), position: zone } );
+						paintEditorSections( ed );
+						saveEditorSections( ed );
+					} )
+				);
+				const manage = $( 'button[data-secmanage]', menu );
+				if ( manage ) manage.addEventListener( 'click', () => { menu.remove(); go( 'sections' ); } );
+				setTimeout( () => {
+					const close = ( ev ) => {
+						if ( ! menu.contains( ev.target ) ) menu.remove();
+						document.removeEventListener( 'click', close );
+					};
+					document.addEventListener( 'click', close );
+				}, 0 );
+			} )
+		);
+
+		$$( '.hero-ed-sections [data-secedit]' ).forEach( ( b ) =>
+			b.addEventListener( 'click', () => editAttachedSection( ed, Number( b.dataset.secedit ) ) )
+		);
+		$$( '.hero-ed-sections [data-secremove]' ).forEach( ( b ) =>
 			b.addEventListener( 'click', () => {
-				p.attached = p.attached.filter( ( id ) => id !== Number( b.dataset.secremove ) );
+				p.attached = p.attached.filter( ( r ) => r.id !== Number( b.dataset.secremove ) );
 				paintEditorSections( ed );
 				saveEditorSections( ed );
 			} )
 		);
 
-		// Drag to reorder: drop ON a chip inserts before/after by cursor side.
-		let draggingId = null;
-		$$( '.hero-ed-sec-chip', el ).forEach( ( chip ) => {
+		// Drag: within a zone reorders; onto the other bar (or its chips) moves.
+		const rowOf = ( id ) => p.attached.find( ( r ) => r.id === id );
+		$$( '.hero-ed-sections .hero-ed-sec-chip' ).forEach( ( chip ) => {
 			chip.addEventListener( 'dragstart', ( ev ) => {
 				draggingId = Number( chip.dataset.secid );
 				chip.classList.add( 'dragging' );
@@ -35097,27 +35130,49 @@
 			} );
 			chip.addEventListener( 'dragend', () => {
 				draggingId = null;
-				chip.classList.remove( 'dragging' );
-				$$( '.hero-ed-sec-chip.dropside', el ).forEach( ( c ) => c.classList.remove( 'dropside' ) );
+				$$( '.hero-ed-sec-chip.dragging, .hero-ed-sec-chip.dropside' ).forEach( ( c ) => c.classList.remove( 'dragging', 'dropside' ) );
+				$$( '.hero-ed-sections.dropzone' ).forEach( ( z ) => z.classList.remove( 'dropzone' ) );
 			} );
 			chip.addEventListener( 'dragover', ( ev ) => {
 				if ( draggingId == null || Number( chip.dataset.secid ) === draggingId ) return;
 				ev.preventDefault();
+				ev.stopPropagation();
 				ev.dataTransfer.dropEffect = 'move';
 				chip.classList.add( 'dropside' );
 			} );
 			chip.addEventListener( 'dragleave', () => chip.classList.remove( 'dropside' ) );
 			chip.addEventListener( 'drop', ( ev ) => {
 				ev.preventDefault();
+				ev.stopPropagation();
 				const targetId = Number( chip.dataset.secid );
 				if ( draggingId == null || targetId === draggingId ) return;
-				const from = p.attached.indexOf( draggingId );
-				p.attached.splice( from, 1 );
-				// Cursor on the left half → before the target; right half → after.
+				const dragged = rowOf( draggingId );
+				const target = rowOf( targetId );
+				p.attached.splice( p.attached.indexOf( dragged ), 1 );
+				dragged.position = target.position;
 				const rect = chip.getBoundingClientRect();
 				const before = ( ev.clientX - rect.left ) < rect.width / 2;
-				const at = p.attached.indexOf( targetId ) + ( before ? 0 : 1 );
-				p.attached.splice( at, 0, draggingId );
+				const at = p.attached.indexOf( target ) + ( before ? 0 : 1 );
+				p.attached.splice( at, 0, dragged );
+				paintEditorSections( ed );
+				saveEditorSections( ed );
+			} );
+		} );
+		$$( '.hero-ed-sections' ).forEach( ( bar ) => {
+			bar.addEventListener( 'dragover', ( ev ) => {
+				if ( draggingId == null ) return;
+				ev.preventDefault();
+				ev.dataTransfer.dropEffect = 'move';
+				bar.classList.add( 'dropzone' );
+			} );
+			bar.addEventListener( 'dragleave', () => bar.classList.remove( 'dropzone' ) );
+			bar.addEventListener( 'drop', ( ev ) => {
+				ev.preventDefault();
+				if ( draggingId == null ) return;
+				const dragged = rowOf( draggingId );
+				p.attached.splice( p.attached.indexOf( dragged ), 1 );
+				dragged.position = bar.dataset.zone;
+				p.attached.push( dragged );
 				paintEditorSections( ed );
 				saveEditorSections( ed );
 			} );
