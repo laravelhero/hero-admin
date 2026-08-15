@@ -1,0 +1,744 @@
+<?php
+/**
+ * Bundled adapter: Fluent Forms entries.
+ *
+ * Fluent ships fluentform/v1 with full submissions CRUD, but responses use a
+ * Laravel paginator envelope and store field values as a JSON `response`
+ * blob — Hero's collection primitives want { items, total } plus a labeled
+ * detail. This shim reads via their tables/API-shaped data and normalizes.
+ *
+ * @package hero-admin
+ */
+
+defined( 'ABSPATH' ) || exit;
+
+/**
+ * Fluent Forms is loaded.
+ */
+function hero_admin_fluent_forms_ready() {
+	return defined( 'FLUENTFORM' ) || function_exists( 'wpFluentForm' ) || class_exists( 'FluentForm\App\Models\Form' );
+}
+
+/**
+ * Entry viewer capability (admins get full access via Fluent ACL).
+ */
+function hero_admin_fluent_forms_can_view() {
+	if ( current_user_can( 'fluentform_full_access' ) || current_user_can( 'fluentform_entries_viewer' ) ) {
+		return true;
+	}
+	// Fluent grants managers manage_options-level caps on install; fall back
+	// so a plain admin still sees the surface before ACL has run.
+	return current_user_can( 'manage_options' );
+}
+
+/**
+ * The set of form ids this user may touch, or false when unscoped.
+ *
+ * Fluent's Settings -> Managers lets an admin scope a manager to specific
+ * forms (user meta _fluent_forms_has_specific_forms_permission /
+ * _fluent_forms_allowed_forms). Their own screens honour it because every
+ * Acl::hasPermission() call passes a form id; a bare current_user_can() does
+ * not, which is how a scoped manager could read and delete EVERY form's
+ * submissions through this adapter.
+ *
+ * Returns false (no restriction) or an array of ints (possibly empty, which
+ * means "assigned to nothing" and must yield no rows, not all rows).
+ */
+function hero_admin_fluent_forms_scope() {
+	if ( ! class_exists( '\FluentForm\App\Services\Manager\FormManagerService' ) ) {
+		return false;
+	}
+	$scope = \FluentForm\App\Services\Manager\FormManagerService::getUserAllowedFormsScope();
+	return false === $scope ? false : array_map( 'intval', (array) $scope );
+}
+
+/**
+ * Whether this user may act on ONE form, through Fluent's own object-aware ACL.
+ */
+function hero_admin_fluent_forms_can_form( $form_id, $permission = 'fluentform_entries_viewer' ) {
+	$form_id = (int) $form_id;
+	if ( $form_id <= 0 ) {
+		return false;
+	}
+	if ( class_exists( '\FluentForm\App\Modules\Acl\Acl' ) ) {
+		return (bool) \FluentForm\App\Modules\Acl\Acl::hasPermission( $permission, $form_id );
+	}
+	// No ACL class to ask — fall back to the scope list plus the flat cap.
+	$scope = hero_admin_fluent_forms_scope();
+	if ( false !== $scope && ! in_array( $form_id, $scope, true ) ) {
+		return false;
+	}
+	return hero_admin_fluent_forms_can_view();
+}
+
+/**
+ * The form id a submission belongs to (0 when the row is gone).
+ */
+function hero_admin_fluent_forms_entry_form_id( $entry_id ) {
+	global $wpdb;
+	return (int) $wpdb->get_var( $wpdb->prepare(
+		"SELECT form_id FROM `{$wpdb->prefix}fluentform_submissions` WHERE id = %d",
+		(int) $entry_id
+	) );
+}
+
+/**
+ * 403 unless the caller may act on the form behind this submission.
+ */
+function hero_admin_fluent_forms_guard_entry( $entry_id, $permission = 'fluentform_entries_viewer' ) {
+	$form_id = hero_admin_fluent_forms_entry_form_id( $entry_id );
+	if ( ! $form_id ) {
+		return new WP_Error( 'not_found', 'Entry not found.', array( 'status' => 404 ) );
+	}
+	if ( ! hero_admin_fluent_forms_can_form( $form_id, $permission ) ) {
+		return new WP_Error( 'forbidden', 'You cannot access entries for that form.', array( 'status' => 403 ) );
+	}
+	return $form_id;
+}
+
+/**
+ * Field labels for a form id, keyed by input name.
+ *
+ * @param int $form_id Form ID.
+ * @return array<string,string>
+ */
+function hero_admin_fluent_forms_labels( $form_id ) {
+	global $wpdb;
+	$table = $wpdb->prefix . 'fluentform_forms';
+	// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+	$raw   = $wpdb->get_var( $wpdb->prepare( "SELECT form_fields FROM `{$table}` WHERE id = %d", $form_id ) );
+	if ( ! $raw ) {
+		return array();
+	}
+	$decoded = json_decode( $raw, true );
+	if ( ! is_array( $decoded ) || empty( $decoded['fields'] ) ) {
+		return array();
+	}
+	$labels = array();
+	foreach ( $decoded['fields'] as $field ) {
+		$name = $field['attributes']['name'] ?? '';
+		if ( ! $name ) {
+			continue;
+		}
+		$admin = trim( (string) ( $field['settings']['admin_field_label'] ?? '' ) );
+		$label = $admin !== ''
+			? $admin
+			: trim( (string) ( $field['settings']['label'] ?? '' ) );
+		$labels[ $name ] = wp_strip_all_tags( $label !== '' ? $label : $name );
+	}
+	return $labels;
+}
+
+/**
+ * Decode a submission response JSON into a flat string map.
+ *
+ * @param string|array $response Raw response column or array.
+ * @return array<string,string>
+ */
+function hero_admin_fluent_forms_response_map( $response ) {
+	if ( is_array( $response ) ) {
+		$map = $response;
+	} else {
+		$map = json_decode( (string) $response, true );
+		if ( ! is_array( $map ) ) {
+			return array();
+		}
+	}
+	$out = array();
+	foreach ( $map as $k => $v ) {
+		if ( is_array( $v ) ) {
+			// Name fields etc. flatten to "First Last".
+			$flat = array();
+			array_walk_recursive( $v, function ( $leaf ) use ( &$flat ) {
+				if ( '' !== trim( (string) $leaf ) ) {
+					$flat[] = (string) $leaf;
+				}
+			} );
+			$out[ $k ] = implode( ' ', $flat );
+		} else {
+			$out[ $k ] = (string) $v;
+		}
+	}
+	return $out;
+}
+
+/**
+ * Build a list-row summary from a response map.
+ *
+ * @param array $map Field map.
+ * @return string
+ */
+function hero_admin_fluent_forms_summary( $map ) {
+	$parts = array();
+	foreach ( $map as $v ) {
+		$v = trim( (string) $v );
+		if ( '' === $v ) {
+			continue;
+		}
+		$parts[] = $v;
+		if ( count( $parts ) >= 3 ) {
+			break;
+		}
+	}
+	return $parts ? implode( ' · ', $parts ) : '(empty entry)';
+}
+
+/** Server-built model for the surface status card (SureForms parity). */
+function hero_admin_fluent_forms_status_model() {
+	global $wpdb;
+	$subs  = $wpdb->prefix . 'fluentform_submissions';
+	$forms = $wpdb->prefix . 'fluentform_forms';
+	// Counters follow the same scope as the list: Fluent scopes its own
+	// admin-bar and menu counts the same way, so a manager provisioned for one
+	// form must not learn the whole estate's volume.
+	$scope  = hero_admin_fluent_forms_scope();
+	$clause = '';
+	$params = array();
+	if ( is_array( $scope ) ) {
+		if ( ! $scope ) {
+			return array(
+				'rows'    => array(
+					array( 'label' => 'Unread entries', 'value' => '0', 'hint' => '0 total' ),
+					array( 'label' => 'Forms', 'value' => '0' ),
+				),
+				'actions' => array(
+					array( 'label' => 'Open Fluent Forms ↗', 'href' => admin_url( 'admin.php?page=fluent_forms_all_entries' ) ),
+				),
+			);
+		}
+		$clause = ' AND form_id IN (' . implode( ',', array_fill( 0, count( $scope ), '%d' ) ) . ')';
+		$params = $scope;
+	}
+	// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+	$count = function ( $where ) use ( $wpdb, $subs, $clause, $params ) {
+		$sql = "SELECT COUNT(*) FROM {$subs} WHERE {$where}{$clause}";
+		return (int) ( $params ? $wpdb->get_var( $wpdb->prepare( $sql, $params ) ) : $wpdb->get_var( $sql ) );
+	};
+	$unread = $count( "status = 'unread'" );
+	$total  = $count( "status <> 'trashed'" );
+	$spam   = $count( "status = 'spam'" );
+	$nforms = is_array( $scope ) ? count( $scope ) : (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$forms}" );
+	// phpcs:enable
+	$hint = number_format_i18n( $total ) . ' total';
+	if ( $spam ) {
+		$hint .= ', ' . number_format_i18n( $spam ) . ' spam';
+	}
+	return array(
+		'rows'    => array(
+			array( 'label' => 'Unread entries', 'value' => number_format_i18n( $unread ), 'hint' => $hint ),
+			array( 'label' => 'Forms', 'value' => number_format_i18n( $nforms ) ),
+		),
+		'actions' => array(
+			array( 'label' => 'Open Fluent Forms ↗', 'href' => admin_url( 'admin.php?page=fluent_forms_all_entries' ) ),
+		),
+	);
+}
+
+add_filter( 'hero_admin_surfaces', function ( $surfaces ) {
+	if ( ! hero_admin_fluent_forms_ready() ) {
+		return $surfaces;
+	}
+	if ( ! hero_admin_fluent_forms_can_view() ) {
+		return $surfaces;
+	}
+
+	$surfaces['fluent-forms'] = array(
+		'label'      => 'Forms',
+		'family'     => 'forms',
+		'status'     => array( 'route' => 'hero-admin/v1/fluent-forms/status' ),
+		'group'      => 'workspace', // inbox-shaped (see gravity-forms.php)
+		'sub'        => 'Fluent Forms',
+		'icon'       => 'inbox',
+		'cap'        => 'read',
+		'collection' => array(
+			'viewLabel' => 'Entries',
+			'route'     => 'hero-admin/v1/fluent-forms/entries',
+			'pageQuery' => 'per_page=25&page={page}',
+			'search'    => 'search={q}',
+			'itemsKey'  => 'items',
+			'totalKey'  => 'total',
+			'tabs'      => array(
+				'route'    => 'hero-admin/v1/fluent-forms/forms',
+				'valueKey' => 'id',
+				'labelKey' => 'title',
+				'param'    => 'form_id',
+				'allLabel' => 'All entries',
+			),
+			// Their status column: unread/read/spam/trashed (favorites is a separate flag).
+			'filter'    => array(
+				'label'   => 'Status',
+				'options' => array(
+					array( 'inbox', 'Received' ),
+					array( 'spam', 'Spam' ),
+					array( 'trashed', 'Trash' ),
+				),
+				'query'   => 'status={v}',
+			),
+			'columns'   => array(
+				array( 'key' => 'summary', 'label' => 'Entry', 'format' => 'title', 'width' => 'minmax(0,1.8fr)' ),
+				array( 'key' => 'form_title', 'label' => 'Form' ),
+				array( 'key' => 'status', 'label' => 'Status', 'format' => 'pill', 'width' => '100px' ),
+				array( 'key' => 'date', 'label' => 'When', 'format' => 'ago' ),
+			),
+			'detail'    => array(
+				'sectionsRoute' => 'hero-admin/v1/fluent-forms/entries/{id}',
+			),
+			'actions'   => array(
+				array(
+					'label'  => 'Mark as read',
+					'method' => 'POST',
+					'route'  => 'hero-admin/v1/fluent-forms/entries/{id}/status',
+					'body'   => array( 'status' => 'read' ),
+					'when'   => array( 'key' => 'status', 'equals' => 'unread' ),
+				),
+				array(
+					'label'   => 'Mark as spam',
+					'method'  => 'POST',
+					'route'   => 'hero-admin/v1/fluent-forms/entries/{id}/status',
+					'body'    => array( 'status' => 'spam' ),
+					'confirm' => 'Mark this entry as spam? Find it under the Spam filter.',
+					'danger'  => true,
+					'when'    => array( 'key' => 'bucket', 'equals' => 'inbox' ),
+				),
+				array(
+					'label'  => 'Not spam',
+					'method' => 'POST',
+					'route'  => 'hero-admin/v1/fluent-forms/entries/{id}/status',
+					'body'   => array( 'status' => 'unread' ),
+					'when'   => array( 'key' => 'status', 'equals' => 'spam' ),
+				),
+				array(
+					'label'   => 'Trash entry',
+					'method'  => 'POST',
+					'route'   => 'hero-admin/v1/fluent-forms/entries/{id}/status',
+					'body'    => array( 'status' => 'trashed' ),
+					'confirm' => 'Move this entry to trash?',
+					'danger'  => true,
+					'when'    => array( 'key' => 'bucket', 'equals' => 'inbox' ),
+				),
+				array(
+					'label'  => 'Restore',
+					'method' => 'POST',
+					'route'  => 'hero-admin/v1/fluent-forms/entries/{id}/status',
+					'body'   => array( 'status' => 'unread' ),
+					'when'   => array( 'key' => 'status', 'equals' => 'trashed' ),
+				),
+				array(
+					'label'   => 'Delete permanently',
+					'method'  => 'DELETE',
+					'route'   => 'hero-admin/v1/fluent-forms/entries/{id}',
+					'confirm' => 'Delete this entry permanently? There is no undo.',
+					'danger'  => true,
+					'when'    => array( 'key' => 'status', 'equals' => 'trashed' ),
+				),
+				array(
+					'label'   => 'Delete permanently',
+					'method'  => 'DELETE',
+					'route'   => 'hero-admin/v1/fluent-forms/entries/{id}',
+					'confirm' => 'Delete this entry permanently? There is no undo.',
+					'danger'  => true,
+					'when'    => array( 'key' => 'status', 'equals' => 'spam' ),
+				),
+				array(
+					'label' => 'Open in Fluent Forms ↗',
+					// Detail modal also carries adminUrl with the form-scoped entry deep link.
+					'href'  => admin_url( 'admin.php?page=fluent_forms&route=entries#/entries/{id}' ),
+				),
+			),
+			'bulk'      => array(
+				array(
+					'label'   => 'Mark as spam',
+					'method'  => 'POST',
+					'route'   => 'hero-admin/v1/fluent-forms/entries/{id}/status',
+					'body'    => array( 'status' => 'spam' ),
+					'confirm' => 'Mark the selected entries as spam?',
+					'danger'  => true,
+					'when'    => array( 'key' => 'bucket', 'equals' => 'inbox' ),
+				),
+				array(
+					'label'   => 'Trash',
+					'method'  => 'POST',
+					'route'   => 'hero-admin/v1/fluent-forms/entries/{id}/status',
+					'body'    => array( 'status' => 'trashed' ),
+					'confirm' => 'Move the selected entries to trash?',
+					'danger'  => true,
+					'when'    => array( 'key' => 'bucket', 'equals' => 'inbox' ),
+				),
+				array(
+					'label'  => 'Restore',
+					'method' => 'POST',
+					'route'  => 'hero-admin/v1/fluent-forms/entries/{id}/status',
+					'body'   => array( 'status' => 'unread' ),
+					'when'   => array( 'key' => 'status', 'equals' => 'trashed' ),
+				),
+				array(
+					'label'   => 'Delete permanently',
+					'method'  => 'DELETE',
+					'route'   => 'hero-admin/v1/fluent-forms/entries/{id}',
+					'confirm' => 'Delete the selected entries permanently?',
+					'danger'  => true,
+					'when'    => array( 'key' => 'status', 'equals' => 'trashed' ),
+				),
+			),
+		),
+		'manage'     => array(
+			'viewLabel' => 'Forms',
+			'route'     => 'hero-admin/v1/fluent-forms/forms?manage=1',
+			'columns'   => array(
+				array( 'key' => 'title', 'label' => 'Form', 'format' => 'title' ),
+				array( 'key' => 'entries', 'label' => 'Entries', 'format' => 'num' ),
+				array( 'key' => 'status', 'label' => 'Status', 'format' => 'pill', 'width' => '100px' ),
+				array( 'key' => 'date', 'label' => 'Updated', 'format' => 'ago' ),
+			),
+			'detail'    => array(),
+			'actions'   => array(
+				array(
+					'label' => 'Edit in Fluent Forms ↗',
+					'href'  => admin_url( 'admin.php?page=fluent_forms&route=editor&form_id={id}' ),
+				),
+			),
+		),
+	);
+	return $surfaces;
+} );
+
+add_action( 'rest_api_init', function () {
+	if ( ! hero_admin_fluent_forms_ready() ) {
+		return;
+	}
+
+	register_rest_route( 'hero-admin/v1', '/fluent-forms/status', array(
+		'methods'             => 'GET',
+		'permission_callback' => 'hero_admin_fluent_forms_can_view',
+		'callback'            => function () {
+			return rest_ensure_response( hero_admin_fluent_forms_status_model() );
+		},
+	) );
+
+	register_rest_route( 'hero-admin/v1', '/fluent-forms/forms', array(
+		'methods'             => 'GET',
+		'permission_callback' => 'hero_admin_fluent_forms_can_view',
+		'callback'            => function ( WP_REST_Request $request ) {
+			global $wpdb;
+			$forms_table = $wpdb->prefix . 'fluentform_forms';
+			$subs_table  = $wpdb->prefix . 'fluentform_submissions';
+			// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- prefix-derived tables.
+			// Scope the form estate the same way the entries are scoped. Fluent's
+			// own dropdowns, reports and search all wrap this in
+			// whereIn('id', $allowForms ?: [0]); without it a manager scoped to
+			// one form still enumerates every form's title and traffic volume.
+			$scope = hero_admin_fluent_forms_scope();
+			if ( is_array( $scope ) && ! $scope ) {
+				$rows = array();
+			} elseif ( is_array( $scope ) ) {
+				$in   = implode( ',', array_fill( 0, count( $scope ), '%d' ) );
+				$rows = $wpdb->get_results( $wpdb->prepare(
+					// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- prefix-derived tables; ids bound below.
+					"SELECT f.id, f.title, f.status, f.updated_at,
+						(SELECT COUNT(*) FROM `{$subs_table}` s WHERE s.form_id = f.id) AS entries
+					 FROM `{$forms_table}` f
+					 WHERE f.id IN ({$in})
+					 ORDER BY f.title ASC",
+					$scope
+				) );
+			} else {
+				$rows = $wpdb->get_results(
+					"SELECT f.id, f.title, f.status, f.updated_at,
+						(SELECT COUNT(*) FROM `{$subs_table}` s WHERE s.form_id = f.id) AS entries
+					 FROM `{$forms_table}` f
+					 ORDER BY f.title ASC"
+				);
+			}
+			// phpcs:enable
+			$manage = ! empty( $request['manage'] );
+			$out    = array();
+			foreach ( (array) $rows as $r ) {
+				$row = array(
+					'id'    => (int) $r->id,
+					'title' => $r->title,
+				);
+				if ( $manage ) {
+					$row['entries'] = (int) $r->entries;
+					$row['status']  = ( 'published' === $r->status ) ? 'active' : (string) $r->status;
+					$row['date']    = $r->updated_at
+						? str_replace( ' ', 'T', (string) $r->updated_at )
+						: '';
+				}
+				$out[] = $row;
+			}
+			return rest_ensure_response( $out );
+		},
+	) );
+
+	register_rest_route( 'hero-admin/v1', '/fluent-forms/entries', array(
+		'methods'             => 'GET',
+		'permission_callback' => 'hero_admin_fluent_forms_can_view',
+		'callback'            => function ( WP_REST_Request $request ) {
+			global $wpdb;
+			$subs_table  = $wpdb->prefix . 'fluentform_submissions';
+			$forms_table = $wpdb->prefix . 'fluentform_forms';
+			$per_page    = min( 100, max( 1, (int) ( $request['per_page'] ?: 25 ) ) );
+			$page        = max( 1, (int) ( $request['page'] ?: 1 ) );
+
+			$bucket = sanitize_key( (string) ( $request['status'] ?: 'inbox' ) );
+			if ( ! in_array( $bucket, array( 'inbox', 'spam', 'trashed' ), true ) ) {
+				$bucket = 'inbox';
+			}
+
+			$where = array( '1=1' );
+			$args  = array();
+			if ( 'inbox' === $bucket ) {
+				// Received = not spam and not trash (unread + read + favorites).
+				$where[] = "s.status NOT IN ('spam','trashed')";
+			} elseif ( 'spam' === $bucket ) {
+				$where[] = "s.status = 'spam'";
+			} else {
+				$where[] = "s.status = 'trashed'";
+			}
+			if ( $request['form_id'] ) {
+				$form_id = (int) $request['form_id'];
+				if ( ! hero_admin_fluent_forms_can_form( $form_id ) ) {
+					return new WP_Error( 'forbidden', 'You cannot access entries for that form.', array( 'status' => 403 ) );
+				}
+				$where[] = 's.form_id = %d';
+				$args[]  = $form_id;
+			}
+
+			// MANDATORY scope for managers assigned to specific forms. Without
+			// it an unfiltered list returns every form's submissions — names,
+			// emails, phone numbers and message bodies for forms this user was
+			// never granted. An empty scope means "assigned to nothing".
+			$scope = hero_admin_fluent_forms_scope();
+			if ( false !== $scope ) {
+				if ( ! $scope ) {
+					return rest_ensure_response( array( 'items' => array(), 'total' => 0 ) );
+				}
+				$where[] = 's.form_id IN (' . implode( ',', array_fill( 0, count( $scope ), '%d' ) ) . ')';
+				$args    = array_merge( $args, $scope );
+			}
+			if ( $request['search'] ) {
+				$like    = '%' . $wpdb->esc_like( $request['search'] ) . '%';
+				$where[] = 's.response LIKE %s';
+				$args[]  = $like;
+			}
+			$where_sql = implode( ' AND ', $where );
+
+			// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$total = (int) ( $args
+				? $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM `{$subs_table}` s WHERE {$where_sql}", ...$args ) )
+				: $wpdb->get_var( "SELECT COUNT(*) FROM `{$subs_table}` s WHERE {$where_sql}" ) );
+			$rows = $wpdb->get_results( $wpdb->prepare(
+				"SELECT s.id, s.form_id, s.response, s.status, s.created_at, f.title AS form_title
+				 FROM `{$subs_table}` s
+				 LEFT JOIN `{$forms_table}` f ON f.id = s.form_id
+				 WHERE {$where_sql}
+				 ORDER BY s.id DESC
+				 LIMIT %d OFFSET %d",
+				array_merge( $args, array( $per_page, ( $page - 1 ) * $per_page ) )
+			) );
+			// phpcs:enable
+
+			$items = array();
+			foreach ( (array) $rows as $r ) {
+				$map     = hero_admin_fluent_forms_response_map( $r->response );
+				$status  = $r->status ? (string) $r->status : 'unread';
+				$items[] = array(
+					'id'         => (int) $r->id,
+					'form_id'    => (int) $r->form_id,
+					'summary'    => hero_admin_fluent_forms_summary( $map ),
+					'form_title' => $r->form_title ?: ( 'Form #' . $r->form_id ),
+					'status'     => $status,
+					'bucket'     => $bucket,
+					// Fluent stores site-local datetimes; timeAgo treats bare
+					// strings as UTC, so leave as local-looking ISO without Z.
+					'date'       => $r->created_at ? str_replace( ' ', 'T', (string) $r->created_at ) : '',
+				);
+			}
+
+			return rest_ensure_response( array(
+				'items' => $items,
+				'total' => $total,
+			) );
+		},
+	) );
+
+	register_rest_route( 'hero-admin/v1', '/fluent-forms/entries/(?P<id>\d+)', array(
+		array(
+			'methods'             => 'GET',
+			'permission_callback' => 'hero_admin_fluent_forms_can_view',
+			'callback'            => function ( WP_REST_Request $request ) {
+				global $wpdb;
+				$guard = hero_admin_fluent_forms_guard_entry( (int) $request['id'] );
+				if ( is_wp_error( $guard ) ) {
+					return $guard;
+				}
+				$subs_table = $wpdb->prefix . 'fluentform_submissions';
+				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+				$row = $wpdb->get_row( $wpdb->prepare(
+					"SELECT * FROM `{$subs_table}` WHERE id = %d",
+					(int) $request['id']
+				) );
+				if ( ! $row ) {
+					return new WP_Error( 'not_found', 'Entry not found.', array( 'status' => 404 ) );
+				}
+
+				// Opening a detail marks unread → read (Fluent Forms' own screen semantics).
+				if ( 'unread' === (string) $row->status ) {
+					$wpdb->update(
+						$subs_table,
+						array( 'status' => 'read' ),
+						array( 'id' => (int) $row->id ),
+						array( '%s' ),
+						array( '%d' )
+					);
+					$row->status = 'read';
+				}
+
+				$map    = hero_admin_fluent_forms_response_map( $row->response );
+				$labels = hero_admin_fluent_forms_labels( (int) $row->form_id );
+				$answers = array();
+				foreach ( $map as $key => $val ) {
+					if ( '' === trim( $val ) ) {
+						continue;
+					}
+					$label = $labels[ $key ] ?? ucwords( str_replace( array( '_', '-' ), ' ', $key ) );
+					$answers[] = array(
+						'label' => $label,
+						'value' => $val,
+						'type'  => ( false !== strpos( $key, 'email' ) || is_email( $val ) ) ? 'email'
+							: ( ( 0 === strpos( $val, 'http' ) ) ? 'url' : 'text' ),
+					);
+				}
+
+				$forms_table = $wpdb->prefix . 'fluentform_forms';
+				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+				$form_title  = $wpdb->get_var( $wpdb->prepare(
+					"SELECT title FROM `{$forms_table}` WHERE id = %d",
+					(int) $row->form_id
+				) );
+
+				$meta   = array();
+				$meta[] = array(
+					'label' => 'Submitted',
+					'value' => $row->created_at
+						? date_i18n( 'M j, Y g:i a', strtotime( $row->created_at ) )
+						: '',
+				);
+				if ( $form_title ) {
+					$meta[] = array( 'label' => 'Form', 'value' => $form_title );
+				}
+				if ( ! empty( $row->source_url ) ) {
+					$meta[] = array( 'label' => 'Source', 'value' => $row->source_url, 'type' => 'url' );
+				}
+				if ( ! empty( $row->ip ) ) {
+					$meta[] = array( 'label' => 'IP', 'value' => $row->ip );
+				}
+				if ( ! empty( $row->browser ) || ! empty( $row->device ) ) {
+					$meta[] = array(
+						'label' => 'Client',
+						'value' => trim( ( $row->device ?: '' ) . ' · ' . ( $row->browser ?: '' ), ' ·' ),
+					);
+				}
+
+				return rest_ensure_response( array(
+					'kind'     => 'entry',
+					'title'    => $form_title ?: ( 'Form #' . (int) $row->form_id ),
+					'status'   => $row->status ? (string) $row->status : 'unread',
+					'sections' => array(
+						array( 'title' => 'Responses', 'rows' => $answers ),
+						array( 'title' => 'Submission', 'rows' => $meta ),
+					),
+					'adminUrl' => admin_url(
+						'admin.php?page=fluent_forms&route=entries&form_id=' . (int) $row->form_id
+						. '#/entries/' . (int) $row->id
+					),
+				) );
+			},
+		),
+		array(
+			'methods'             => 'DELETE',
+			'permission_callback' => function () {
+				return current_user_can( 'fluentform_manage_entries' )
+					|| current_user_can( 'fluentform_full_access' )
+					|| current_user_can( 'manage_options' );
+			},
+			'callback'            => function ( WP_REST_Request $request ) {
+				global $wpdb;
+				$id    = (int) $request['id'];
+				$guard = hero_admin_fluent_forms_guard_entry( $id, 'fluentform_manage_entries' );
+				if ( is_wp_error( $guard ) ) {
+					return $guard;
+				}
+				$subs_table = $wpdb->prefix . 'fluentform_submissions';
+				$det_table  = $wpdb->prefix . 'fluentform_entry_details';
+				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+				$row = $wpdb->get_row( $wpdb->prepare(
+					"SELECT id, status FROM `{$subs_table}` WHERE id = %d",
+					$id
+				) );
+				if ( ! $row ) {
+					return new WP_Error( 'not_found', 'Entry not found.', array( 'status' => 404 ) );
+				}
+				// Permanent delete is for trash/spam only (Received → Trash first).
+				if ( ! in_array( (string) $row->status, array( 'trashed', 'spam' ), true ) ) {
+					return new WP_Error( 'not_trashed', 'Move the entry to trash (or spam) before deleting permanently.', array( 'status' => 400 ) );
+				}
+				// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+				$wpdb->delete( $det_table, array( 'submission_id' => $id ), array( '%d' ) );
+				$wpdb->delete( $subs_table, array( 'id' => $id ), array( '%d' ) );
+				// phpcs:enable
+				return rest_ensure_response( array( 'id' => $id, 'deleted' => true, 'message' => 'Entry deleted permanently.' ) );
+			},
+		),
+	) );
+
+	register_rest_route( 'hero-admin/v1', '/fluent-forms/entries/(?P<id>\d+)/status', array(
+		'methods'             => 'POST',
+		'permission_callback' => function () {
+			return current_user_can( 'fluentform_manage_entries' )
+				|| current_user_can( 'fluentform_full_access' )
+				|| current_user_can( 'manage_options' );
+		},
+		'callback'            => function ( WP_REST_Request $request ) {
+			global $wpdb;
+			$id    = (int) $request['id'];
+			$guard = hero_admin_fluent_forms_guard_entry( $id, 'fluentform_manage_entries' );
+			if ( is_wp_error( $guard ) ) {
+				return $guard;
+			}
+			$status     = sanitize_key( (string) ( $request['status'] ?? '' ) );
+			$allowed    = array( 'unread', 'read', 'spam', 'trashed' );
+			$subs_table = $wpdb->prefix . 'fluentform_submissions';
+			if ( ! in_array( $status, $allowed, true ) ) {
+				return new WP_Error( 'bad_status', 'Unknown status.', array( 'status' => 400 ) );
+			}
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$exists = $wpdb->get_var( $wpdb->prepare(
+				"SELECT id FROM `{$subs_table}` WHERE id = %d",
+				$id
+			) );
+			if ( ! $exists ) {
+				return new WP_Error( 'not_found', 'Entry not found.', array( 'status' => 404 ) );
+			}
+			$wpdb->update(
+				$subs_table,
+				array( 'status' => $status ),
+				array( 'id' => $id ),
+				array( '%s' ),
+				array( '%d' )
+			);
+			$msgs = array(
+				'unread'  => 'Entry restored.',
+				'read'    => 'Marked as read.',
+				'spam'    => 'Marked as spam.',
+				'trashed' => 'Moved to trash.',
+			);
+			return rest_ensure_response( array(
+				'id'      => $id,
+				'status'  => $status,
+				'ok'      => true,
+				'message' => $msgs[ $status ] ?? 'Status updated.',
+			) );
+		},
+	) );
+} );

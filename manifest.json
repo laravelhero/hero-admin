@@ -1,0 +1,18 @@
+{
+    "name": "Hero Admin",
+    "slug": "hero-admin",
+    "author": "<a href=\"https://fb.com/iamwphero\">Abu Taher Hero</a>",
+    "author_profile": "https://fb.com/iamwphero",
+    "version": "0.29.0",
+    "download_url": "https://github.com/laravelhero/hero-admin/releases/download/v0.29.0/hero-admin.zip",
+    "sha256": "",
+    "requires": "6.0",
+    "tested": "7.0",
+    "requires_php": "7.4",
+    "added": "2026-08-15 00:00:00",
+    "last_updated": "2026-08-15 00:00:00",
+    "homepage": "https://fb.com/iamwphero",
+    "sections": {
+        "description": "A reimagined WordPress admin experience. Fast, focused and beautiful. Served at /hero-admin/."
+    }
+}
