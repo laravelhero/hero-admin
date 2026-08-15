@@ -55,7 +55,13 @@ class Hero_Admin_Sections {
 		foreach ( self::attached_list( $post->ID ) as $row ) {
 			$section = get_post( $row['id'] );
 			if ( $section && self::POST_TYPE === $section->post_type && 'publish' === $section->post_status ) {
-				$out[ $row['position'] ][] = self::public_shape( $section );
+				$shaped = self::public_shape( $section );
+				// This page's overrides win field-by-field; untouched fields
+				// keep following the section's defaults.
+				if ( $row['overrides'] ) {
+					$shaped['data'] = (object) array_merge( (array) $shaped['data'], $row['overrides'] );
+				}
+				$out[ $row['position'] ][] = $shaped;
 			}
 		}
 		return $out;
@@ -81,8 +87,10 @@ class Hero_Admin_Sections {
 			if ( $id && ! isset( $seen[ $id ] ) ) {
 				$seen[ $id ] = true;
 				$out[]       = array(
-					'id'       => $id,
-					'position' => $pos,
+					'id'        => $id,
+					'position'  => $pos,
+					// Per-page field overrides; empty means "use the defaults".
+					'overrides' => ( is_array( $row ) && isset( $row['overrides'] ) && is_array( $row['overrides'] ) ) ? $row['overrides'] : array(),
 				);
 			}
 		}
@@ -302,6 +310,25 @@ class Hero_Admin_Sections {
 		return self::sanitize_fields( $templates[ $template_id ]['fields'], $raw );
 	}
 
+	/**
+	 * Sanitize a PARTIAL data map (per-page overrides): only the keys present
+	 * in $raw are sanitized and kept — absent fields fall through to the
+	 * section's own defaults at read time.
+	 */
+	public static function sanitize_partial( $template_id, $raw ) {
+		$templates = self::templates();
+		if ( ! isset( $templates[ $template_id ] ) || ! is_array( $raw ) || ! $raw ) {
+			return array();
+		}
+		$schema = array();
+		foreach ( $templates[ $template_id ]['fields'] as $field ) {
+			if ( array_key_exists( $field['key'], $raw ) ) {
+				$schema[] = $field;
+			}
+		}
+		return self::sanitize_fields( $schema, $raw );
+	}
+
 	private static function sanitize_fields( array $schema, array $raw ) {
 		$out = array();
 		foreach ( $schema as $field ) {
@@ -423,11 +450,13 @@ class Hero_Admin_Sections {
 				'title'    => $section->post_title,
 				'template' => (string) get_post_meta( $section->ID, self::META_TPL, true ),
 				'status'   => $section->post_status,
+				'data'     => (array) get_post_meta( $section->ID, self::META_DATA, true ),
 			);
 		}
 		return array(
-			'attached' => self::attached_list( (int) $request['post'] ),
-			'catalog'  => $catalog,
+			'attached'  => self::attached_list( (int) $request['post'] ),
+			'catalog'   => $catalog,
+			'templates' => self::template_index(),
 		);
 	}
 
@@ -441,9 +470,14 @@ class Hero_Admin_Sections {
 				continue;
 			}
 			$seen[ $id ] = true;
+			$template    = (string) get_post_meta( $id, self::META_TPL, true );
+			$overrides   = ( is_array( $row ) && isset( $row['overrides'] ) && is_array( $row['overrides'] ) )
+				? self::sanitize_partial( $template, $row['overrides'] )
+				: array();
 			$rows[]      = array(
-				'id'       => $id,
-				'position' => ( is_array( $row ) && isset( $row['position'] ) && 'top' === $row['position'] ) ? 'top' : 'bottom',
+				'id'        => $id,
+				'position'  => ( is_array( $row ) && isset( $row['position'] ) && 'top' === $row['position'] ) ? 'top' : 'bottom',
+				'overrides' => $overrides,
 			);
 		}
 		update_post_meta( (int) $request['post'], self::META_ATTACH, $rows );

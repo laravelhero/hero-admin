@@ -30798,6 +30798,35 @@
 			</div>`;
 		}
 
+		if ( m.type === 'section-override' ) {
+			const hasOverride = Object.keys( m.row.overrides || {} ).length > 0;
+			return `
+			<div class="hero-modal-overlay" id="hero-modal-overlay">
+				<div class="hero-modal wide">
+					<div class="hero-modal-head">
+						<div class="hero-modal-title-block">
+							<div class="hero-modal-title">${ esc( m.section.title ) } — on this ${ m.ed.type === 'pages' ? 'page' : 'post' } only</div>
+							<div class="hero-modal-sub">${ esc( m.tpl.label ) } · overrides for “${ esc( m.ed.title || 'this item' ) }”</div>
+						</div>
+						${ hasOverride ? '<span class="hero-status publish">customized</span>' : '' }
+						<button class="hero-x-btn" id="hero-modal-close">×</button>
+					</div>
+					<div class="hero-modal-form">
+						<div class="hero-editor-locked-note">Changes here apply to <b>this ${ m.ed.type === 'pages' ? 'page' : 'post' } only</b> — the section's defaults stay unchanged, and every other page keeps its own text. Fields you leave matching the defaults keep following them.</div>
+						${ m.tpl.fields.map( ( f ) => `<div>
+							<div class="hero-field-label">${ esc( f.label ) }</div>
+							${ f.type === 'repeat' ? sectionRepeatHtml( f, m.data[ f.key ] ) : sectionFieldHtml( f, m.data[ f.key ] ) }
+						</div>` ).join( '' ) }
+					</div>
+					<div class="hero-modal-actions">
+						<button class="hero-btn-primary" id="hero-ovr-save">Save for this ${ m.ed.type === 'pages' ? 'page' : 'post' }</button>
+						${ hasOverride ? `<button class="hero-btn-soft" id="hero-ovr-reset">Reset to defaults</button>` : '' }
+						<button class="hero-btn-soft" id="hero-ovr-defaults" title="Opens the section itself — changes there affect every page">${ icon( 'pencil' ) } Edit defaults</button>
+					</div>
+				</div>
+			</div>`;
+		}
+
 		if ( m.type === 'section-new' ) {
 			return `
 			<div class="hero-modal-overlay" id="hero-modal-overlay">
@@ -31738,6 +31767,55 @@
 
 		if ( m.type === 'product' ) {
 			bindProductDetail( m );
+		}
+
+		if ( m.type === 'section-override' ) {
+			const modal = $( '.hero-modal' );
+			// Repeatable rows: same add/remove dance as the section editor,
+			// with the typed values folded into m.data before re-render.
+			$$( '[data-secadd]', modal ).forEach( ( btn ) =>
+				btn.addEventListener( 'click', () => {
+					m.data = readSectionForm( m.tpl, modal );
+					const key = btn.dataset.secadd;
+					m.data[ key ] = m.data[ key ] || [];
+					m.data[ key ].push( {} );
+					renderOverlays();
+				} )
+			);
+			$$( '[data-secdel]', modal ).forEach( ( btn ) =>
+				btn.addEventListener( 'click', () => {
+					m.data = readSectionForm( m.tpl, modal );
+					const key = btn.closest( '[data-secrep]' ).dataset.secrep;
+					m.data[ key ].splice( Number( btn.dataset.secdel ), 1 );
+					renderOverlays();
+				} )
+			);
+			$( '#hero-ovr-save' ).addEventListener( 'click', () => {
+				const typed = readSectionForm( m.tpl, modal );
+				// Store ONLY what differs from the section's defaults.
+				const overrides = {};
+				m.tpl.fields.forEach( ( f ) => {
+					const a = JSON.stringify( sectionFieldNorm( f, typed[ f.key ] ) );
+					const b = JSON.stringify( sectionFieldNorm( f, m.section.data[ f.key ] ) );
+					if ( a !== b ) overrides[ f.key ] = typed[ f.key ];
+				} );
+				m.row.overrides = overrides;
+				saveEditorSections( m.ed );
+				closeModal();
+				paintEditorSections( m.ed );
+			} );
+			const reset = $( '#hero-ovr-reset' );
+			if ( reset ) reset.addEventListener( 'click', () => {
+				m.row.overrides = {};
+				saveEditorSections( m.ed );
+				toast( 'Back to the section defaults' );
+				closeModal();
+				paintEditorSections( m.ed );
+			} );
+			$( '#hero-ovr-defaults' ).addEventListener( 'click', () => {
+				closeModal();
+				editAttachedSection( m.ed, m.section.id );
+			} );
 		}
 
 		if ( m.type === 'section-new' ) {
@@ -35000,7 +35078,7 @@
 		if ( ! $( '#hero-ed-sections-top' ) || ! ed.id ) return;
 		api( `hero-admin/v1/sections/attached/${ ed.id }` )
 			.then( ( r ) => {
-				ed.sectionsPanel = { attached: r.attached, catalog: r.catalog };
+				ed.sectionsPanel = { attached: r.attached, catalog: r.catalog, templates: r.templates || [] };
 				paintEditorSections( ed );
 			} )
 			.catch( () => { /* not permitted or endpoint missing — bars stay hidden */ } );
@@ -35022,7 +35100,7 @@
 		}, 350 );
 	}
 
-	/** Open one attached section's fields for editing (the ✎ pencil). */
+	/** Edit the section's DEFAULTS (global — affects every page using it). */
 	async function editAttachedSection( ed, id ) {
 		try {
 			const all = await api( 'hero-admin/v1/sections' );
@@ -35034,6 +35112,23 @@
 		} catch ( e ) {
 			toast( e.message, true );
 		}
+	}
+
+	/**
+	 * The ✎ pencil: edit this section FOR THIS PAGE ONLY. The form starts
+	 * from the effective values (defaults + this page's overrides); on save,
+	 * only the fields that differ from the defaults are stored as overrides —
+	 * the section itself is never touched, so other pages keep their own text.
+	 */
+	function openSectionOverride( ed, id ) {
+		const p = ed.sectionsPanel;
+		const row = p.attached.find( ( r ) => r.id === id );
+		const section = p.catalog.find( ( s ) => s.id === id );
+		const tpl = ( p.templates || [] ).find( ( t ) => t.id === ( section && section.template ) );
+		if ( ! row || ! section || ! tpl ) { toast( 'Section template not found', true ); return; }
+		const effective = { ...section.data, ...( row.overrides || {} ) };
+		state.modal = { type: 'section-override', ed, row, section, tpl, data: effective };
+		renderOverlays();
 	}
 
 	function paintEditorSections( ed ) {
@@ -35049,11 +35144,13 @@
 			const chips = rows.map( ( row ) => {
 				const s = byId( row.id );
 				if ( ! s ) return '';
+				const customized = Object.keys( row.overrides || {} ).length > 0;
 				return `
 				<span class="hero-ed-sec-chip${ s.status !== 'publish' ? ' draft' : '' }" draggable="true" data-secid="${ s.id }" title="${ s.status !== 'publish' ? 'Draft — hidden from the public API until published' : 'Drag to reorder, or into the other bar to move it' }">
 					<span class="hero-ed-sec-grip" aria-hidden="true">⠿</span>
 					<span class="hero-ed-sec-name">${ esc( s.title ) }</span>
 					<span class="hero-ed-sec-tpl">${ esc( s.template ) }</span>
+					${ customized ? '<span class="hero-ed-sec-ovr" title="Text customized on this page — the section’s defaults are untouched">custom</span>' : '' }
 					<button type="button" class="hero-ed-sec-edit" data-secedit="${ s.id }" title="Edit this section's fields" aria-label="Edit ${ esc( s.title ) }">${ icon( 'pencil' ) }</button>
 					<button type="button" class="hero-ed-sec-x" data-secremove="${ s.id }" title="Detach" aria-label="Detach ${ esc( s.title ) }">×</button>
 				</span>`;
@@ -35110,7 +35207,7 @@
 		);
 
 		$$( '.hero-ed-sections [data-secedit]' ).forEach( ( b ) =>
-			b.addEventListener( 'click', () => editAttachedSection( ed, Number( b.dataset.secedit ) ) )
+			b.addEventListener( 'click', () => openSectionOverride( ed, Number( b.dataset.secedit ) ) )
 		);
 		$$( '.hero-ed-sections [data-secremove]' ).forEach( ( b ) =>
 			b.addEventListener( 'click', () => {
@@ -35267,16 +35364,8 @@
 		</div>`;
 	}
 
-	/** Read the whole section form back into m.item (source of truth). */
-	function collectSectionForm( m, modal ) {
-		const tpl = sectionTplOf( m.catalog, m.item.template );
-		const nameEl = $( '[data-secmeta="title"]', modal );
-		if ( nameEl ) m.item.title = nameEl.value.trim();
-		const slugEl = $( '[data-secmeta="slug"]', modal );
-		if ( slugEl ) m.item.slug = slugEl.value.trim();
-		const pubSw = $( '[data-secflag="publish"]', modal );
-		if ( pubSw ) m.item.status = pubSw.classList.contains( 'on' ) ? 'publish' : 'draft';
-		if ( ! tpl ) return;
+	/** Read a section-field form (built with sectionFieldHtml/sectionRepeatHtml) into a data map. */
+	function readSectionForm( tpl, modal ) {
 		const data = {};
 		tpl.fields.forEach( ( f ) => {
 			if ( f.type === 'repeat' ) {
@@ -35295,7 +35384,30 @@
 				data[ f.key ] = input ? input.value : '';
 			}
 		} );
-		m.item.data = data;
+		return data;
+	}
+
+	/** Schema-normalized value for change detection (missing fields read as empty). */
+	function sectionFieldNorm( f, v ) {
+		if ( f.type !== 'repeat' ) return String( v ?? '' );
+		return ( Array.isArray( v ) ? v : [] ).map( ( row ) => {
+			const norm = {};
+			f.fields.forEach( ( sf ) => { norm[ sf.key ] = String( ( row || {} )[ sf.key ] ?? '' ); } );
+			return norm;
+		} );
+	}
+
+	/** Read the whole section form back into m.item (source of truth). */
+	function collectSectionForm( m, modal ) {
+		const tpl = sectionTplOf( m.catalog, m.item.template );
+		const nameEl = $( '[data-secmeta="title"]', modal );
+		if ( nameEl ) m.item.title = nameEl.value.trim();
+		const slugEl = $( '[data-secmeta="slug"]', modal );
+		if ( slugEl ) m.item.slug = slugEl.value.trim();
+		const pubSw = $( '[data-secflag="publish"]', modal );
+		if ( pubSw ) m.item.status = pubSw.classList.contains( 'on' ) ? 'publish' : 'draft';
+		if ( ! tpl ) return;
+		m.item.data = readSectionForm( tpl, modal );
 	}
 
 	function renderView() {

@@ -2907,6 +2907,7 @@ button.hero-ac-item:hover { background: var(--hover); }
 .hero-ed-sec-edit:hover { color: var(--accent); }
 .hero-ed-sec-edit svg { width: 13px; height: 13px; }
 .hero-ed-sections.dropzone { border-color: var(--accent); background: var(--hover); }
+.hero-ed-sec-ovr { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; color: var(--accent); background: var(--accent-soft, rgba(59,130,246,0.12)); padding: 1px 6px; border-radius: 99px; }
 .hero-cpt-checks { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0 12px; }
 /* Structure-modal toggle rows: whole row is the click target. */
 .hero-cpt-toggle { display: flex; align-items: center; gap: 9px; font-size: 13.5px; font-weight: 500; padding: 5px 0; cursor: pointer; user-select: none; }
