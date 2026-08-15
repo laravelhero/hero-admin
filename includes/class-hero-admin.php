@@ -490,7 +490,7 @@ class Hero_Admin {
 
 	/** Named schemes (not wp-admin color schemes). CSS owns the token maps. */
 	public static function scheme_ids() {
-		return array( 'hero', 'ocean', 'forest', 'amber', 'rose', 'coral', 'teal', 'slate', 'dusk' );
+		return array( 'ocean', 'hero', 'forest', 'amber', 'rose', 'coral', 'teal', 'slate', 'dusk' );
 	}
 
 	/**

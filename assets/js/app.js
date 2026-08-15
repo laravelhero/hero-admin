@@ -2438,8 +2438,8 @@
 	   Status colors (green/amber/red) stay fixed. Soft/ring derive from accent. */
 
 	const SCHEME_PRESETS = [
-		{ id: 'hero', label: 'Hero', panel: '#151518', accent: '#6e62f5' },
 		{ id: 'ocean', label: 'Ocean', panel: '#121a28', accent: '#3b82f6' },
+		{ id: 'hero', label: 'Hero', panel: '#151518', accent: '#6e62f5' },
 		{ id: 'forest', label: 'Forest', panel: '#131c16', accent: '#34a06c' },
 		{ id: 'amber', label: 'Amber', panel: '#1c1812', accent: '#d4923a' },
 		{ id: 'rose', label: 'Rose', panel: '#1c121a', accent: '#d063b0' },
