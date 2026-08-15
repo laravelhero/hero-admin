@@ -27,6 +27,7 @@ require_once HERO_ADMIN_DIR . 'includes/class-hero-admin-cpt.php';
 require_once HERO_ADMIN_DIR . 'includes/class-hero-admin-notices.php';
 require_once HERO_ADMIN_DIR . 'includes/class-hero-admin-logs.php';
 require_once HERO_ADMIN_DIR . 'includes/class-hero-admin-db.php';
+require_once HERO_ADMIN_DIR . 'includes/class-hero-admin-api-manager.php';
 require_once HERO_ADMIN_DIR . 'includes/class-hero-admin-updater.php';
 
 // Bundled adapters for third-party plugins (each guards on its plugin).
@@ -124,6 +125,7 @@ Hero_Admin_REST::init();
 Hero_Admin_DB::init();
 Hero_Admin_Notices::init();
 Hero_Admin_CPT::init();
+Hero_Admin_API_Manager::init();
 // Self-updater disabled: it polls the GitHub repo in Hero_Admin_Updater::MANIFEST_URL,
 // which does not exist yet. Publish your own repo + manifest.json, update that
 // constant, then re-enable this line.

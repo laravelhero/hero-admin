@@ -1188,6 +1188,80 @@
 		</div>`;
 	}
 
+	/**
+	 * Hero API section of the post-type modal (Structure view). Field-level
+	 * control over the public hero-api/v1 endpoint for this type. Changes
+	 * save on toggle (debounced) — the section works even on core types
+	 * whose definition itself is read-only.
+	 */
+	function apiManagerSectionHtml( m ) {
+		if ( ! m.item ) return '';
+		if ( m.api === false ) return '';
+		if ( ! m.api ) return `<div><div class="hero-field-label">Hero API</div><div class="hero-loading" style="padding:8px 0;">Loading API settings…</div></div>`;
+		const cfg = m.api.types[ m.item.slug ];
+		if ( ! cfg ) return '';
+		const chosen = new Set( cfg.fields );
+		const url = `${ m.api.base }/${ m.item.slug }`;
+		return `<div>
+			<div class="hero-field-label">Hero API — lean public endpoint</div>
+			<div class="hero-cpt-checks">
+				${ structureToggleHtml( 'data-heroapi', 'enabled', 'Enable custom endpoint', cfg.enabled, true, 'Serve this post type at hero-api/v1 with only the fields chosen below' ) }
+			</div>
+			${ cfg.enabled ? `
+			<div class="hero-field-label" style="margin-top:10px;">Exposed fields</div>
+			<div class="hero-cpt-checks">
+				${ m.api.fields.map( ( f ) => structureToggleHtml( 'data-heroapifield', f.key, f.label, chosen.has( f.key ), true, f.desc ) ).join( '' ) }
+			</div>
+			<div class="hero-row-meta" style="margin-top:8px;">Endpoint: <a class="hero-permalink" href="${ esc( url ) }" target="_blank" rel="noopener">${ esc( url ) }</a></div>` : '' }
+		</div>`;
+	}
+
+	let apiManagerSaveTimer = null;
+	function bindApiManagerSection( m, modal ) {
+		if ( ! m.item ) return;
+		// Lazy config load: only admins can read it; hide on 403.
+		if ( m.api == null ) {
+			api( 'hero-admin/v1/api-manager' )
+				.then( ( r ) => { m.api = r; renderOverlays(); } )
+				.catch( () => { m.api = false; } );
+			return;
+		}
+		if ( m.api === false || ! m.api.types[ m.item.slug ] ) return;
+		const cfg = m.api.types[ m.item.slug ];
+		const save = () => {
+			clearTimeout( apiManagerSaveTimer );
+			apiManagerSaveTimer = setTimeout( async () => {
+				try {
+					await api( 'hero-admin/v1/api-manager/' + m.item.slug, {
+						method: 'POST',
+						body: JSON.stringify( { enabled: cfg.enabled, fields: cfg.fields } ),
+					} );
+					toast( 'API settings saved' );
+				} catch ( e ) {
+					toast( e.message, true );
+				}
+			}, 400 );
+		};
+		const enabledSw = $( '[data-heroapi="enabled"]', modal );
+		if ( enabledSw ) enabledSw.closest( '.hero-cpt-toggle' ).addEventListener( 'click', () => {
+			cfg.enabled = enabledSw.classList.contains( 'on' );
+			save();
+			// Re-render so the field list appears/disappears with the toggle.
+			renderOverlays();
+		} );
+		$$( '[data-heroapifield]', modal ).forEach( ( sw ) => {
+			sw.closest( '.hero-cpt-toggle' ).addEventListener( 'click', () => {
+				const key = sw.dataset.heroapifield;
+				const on = sw.classList.contains( 'on' );
+				const set = new Set( cfg.fields );
+				if ( on ) set.add( key ); else set.delete( key );
+				// Keep registry order so payload shape is stable.
+				cfg.fields = m.api.fields.map( ( f ) => f.key ).filter( ( k ) => set.has( k ) );
+				save();
+			} );
+		} );
+	}
+
 	// The whole row is the click target; the switch's own click bubbles up
 	// here, so one handler flips it either way.
 	function bindStructureToggles( scope ) {
@@ -30739,6 +30813,7 @@
 						<div class="hero-cpt-checks">
 							${ ( m.catalog && m.catalog.length ? m.catalog : [ { slug: 'category', label: 'Categories' }, { slug: 'post_tag', label: 'Tags' } ] ).map( ( tax ) => sw( 'data-cpttax', tax.slug, tax.label, taxes.has( tax.slug ) ) ).join( '' ) }
 						</div></div>
+						${ apiManagerSectionHtml( m ) }
 					</div>
 					<div class="hero-modal-actions">
 						${ editable ? `<button class="hero-btn-primary" id="hero-cpt-save">${ isNew ? 'Create post type' : 'Save' }</button>` : '' }
@@ -31584,6 +31659,7 @@
 
 		if ( m.type === 'cpt' ) {
 			bindStructureToggles( $( '.hero-modal' ) );
+			bindApiManagerSection( m, $( '.hero-modal' ) );
 			if ( ! m.item && m.backends && m.backends.length > 1 ) {
 				bindFormComboboxes( $( '.hero-modal' ), 'data-cptbackend', [ { key: 'backend', type: 'combobox', options: m.backends.map( ( b ) => [ b, CPT_SOURCE_LABEL[ b ] || b ] ) } ] );
 			}
