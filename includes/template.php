@@ -60,10 +60,10 @@ window.HERO = <?php echo wp_json_encode( $boot, JSON_HEX_TAG | JSON_HEX_AMP | JS
 // Color scheme from user meta (boot.user.appearance) — apply before paint.
 (function () {
 	try {
-		var ap = ( window.HERO && window.HERO.user && window.HERO.user.appearance ) || { scheme: 'hero' };
+		var ap = ( window.HERO && window.HERO.user && window.HERO.user.appearance ) || { scheme: 'ocean' };
 		var root = document.documentElement;
 		// Legacy { accent } → scheme id.
-		var scheme = ap.scheme || ( ap.accent && ap.accent !== 'custom' ? ap.accent : ( ap.accent === 'custom' ? 'custom' : 'hero' ) );
+		var scheme = ap.scheme || ( ap.accent && ap.accent !== 'custom' ? ap.accent : ( ap.accent === 'custom' ? 'custom' : 'ocean' ) );
 		root.setAttribute( 'data-scheme', scheme );
 		root.removeAttribute( 'data-accent' );
 		var slots = ['bg','bg2','panel','panel2','hover','border','border2','text','text2','text3','accent','accent2','accentFg'];

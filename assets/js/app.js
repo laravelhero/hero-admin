@@ -2504,16 +2504,16 @@
 					dark: normalizeModeTokens( hex ? { accent: hex, accent2: hex } : {}, 'dark' ),
 					light: normalizeModeTokens( hex ? { accent: hex, accent2: hex } : {}, 'light' ),
 				};
-				return { scheme: hex ? 'custom' : 'hero', custom };
+				return { scheme: hex ? 'custom' : 'ocean', custom };
 			}
-			const id = SCHEME_PRESETS.some( ( p ) => p.id === a.accent ) ? a.accent : 'hero';
+			const id = SCHEME_PRESETS.some( ( p ) => p.id === a.accent ) ? a.accent : 'ocean';
 			return {
 				scheme: id,
 				custom: { dark: normalizeModeTokens( {}, 'dark' ), light: normalizeModeTokens( {}, 'light' ) },
 			};
 		}
 		const ids = SCHEME_PRESETS.map( ( p ) => p.id );
-		let scheme = a.scheme === 'custom' || ids.includes( a.scheme ) ? a.scheme : 'hero';
+		let scheme = a.scheme === 'custom' || ids.includes( a.scheme ) ? a.scheme : 'ocean';
 		const customIn = a.custom && typeof a.custom === 'object' && ! Array.isArray( a.custom ) ? a.custom : {};
 		const custom = {
 			dark: normalizeModeTokens( customIn.dark, 'dark' ),
@@ -2553,7 +2553,7 @@
 		if ( B.user ) B.user.appearance = norm;
 		const root = document.documentElement;
 		const mode = root.getAttribute( 'data-theme' ) || 'dark';
-		root.setAttribute( 'data-scheme', norm.scheme || 'hero' );
+		root.setAttribute( 'data-scheme', norm.scheme || 'ocean' );
 		// Drop legacy data-accent if present.
 		root.removeAttribute( 'data-accent' );
 		if ( norm.scheme === 'custom' ) {

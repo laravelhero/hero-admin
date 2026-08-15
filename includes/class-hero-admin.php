@@ -535,7 +535,7 @@ class Hero_Admin {
 
 	public static function appearance_defaults() {
 		return array(
-			'scheme'       => 'hero',
+			'scheme'       => 'ocean',
 			'custom'       => self::scheme_base_tokens(),
 			// Opt-in only — never seed from the old site option.
 			'defaultAdmin' => false,
@@ -615,7 +615,7 @@ class Hero_Admin {
 					}
 				}
 				return array(
-					'scheme'       => $hex ? 'custom' : 'hero',
+					'scheme'       => $hex ? 'custom' : 'ocean',
 					'custom'       => $custom,
 					'defaultAdmin' => false,
 				);
@@ -631,9 +631,9 @@ class Hero_Admin {
 		}
 
 		$ids    = self::scheme_ids();
-		$scheme = isset( $raw['scheme'] ) ? sanitize_key( (string) $raw['scheme'] ) : 'hero';
+		$scheme = isset( $raw['scheme'] ) ? sanitize_key( (string) $raw['scheme'] ) : 'ocean';
 		if ( 'custom' !== $scheme && ! in_array( $scheme, $ids, true ) ) {
-			$scheme = 'hero';
+			$scheme = 'ocean';
 		}
 
 		$custom_in = isset( $raw['custom'] ) && is_array( $raw['custom'] ) ? $raw['custom'] : array();
