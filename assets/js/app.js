@@ -1461,40 +1461,60 @@
 			? `<div class="hero-new-menu-label">Page in…</div>` + B.builders.map( ( b ) =>
 				`<button data-newbuilder="${ esc( b.id ) }"><span class="hero-row-icon">${ icon( 'file' ) }</span> ${ esc( b.name ) }</button>` ).join( '' )
 			: '';
-		menu.innerHTML = `
+		// Custom post types ride the same types cache the Content tabs use;
+		// posts/pages/patterns keep their fixed rows (and icons) below.
+		const cptRowsHtml = () => ( state.cache.types || [] )
+			.filter( ( t ) => ! [ 'post', 'page', 'wp_block' ].includes( t.slug ) )
+			.map( ( t ) => `<button data-newtype="${ esc( t.restBase ) }"><span class="hero-row-icon">${ icon( 'doc' ) }</span> ${ esc( t.name.replace( /s$/, '' ) ) }</button>` )
+			.join( '' );
+		const menuHtml = () => `
 			<button data-newtype="posts"><span class="hero-row-icon">${ icon( 'pilcrow' ) }</span> Post</button>
 			<button data-newtype="pages"><span class="hero-row-icon">${ icon( 'file' ) }</span> Page</button>
+			${ cptRowsHtml() }
 			<button data-newtype="blocks"><span class="hero-row-icon">${ icon( 'block' ) }</span> ${ __( 'Pattern' ) }</button>
 			${ builderRows }`;
+		menu.innerHTML = menuHtml();
 		const r = btn.getBoundingClientRect();
 		menu.style.top = ( r.bottom + 6 ) + 'px';
 		menu.style.right = Math.max( 8, window.innerWidth - r.right ) + 'px';
 		document.body.appendChild( menu );
-		$$( 'button[data-newtype]', menu ).forEach( ( b ) =>
-			b.addEventListener( 'click', () => {
-				menu.remove();
-				newContent( b.dataset.newtype );
-			} )
-		);
-		$$( 'button[data-newbuilder]', menu ).forEach( ( b ) =>
-			b.addEventListener( 'click', async () => {
-				menu.remove();
-				// Name from the registry, not button textContent — that would
-				// drag the row-icon glyph into the toast.
-				const reg = ( B.builders || [] ).find( ( x ) => x.id === b.dataset.newbuilder );
-				toast( `Creating page in ${ reg ? reg.name : 'builder' }…` );
-				try {
-					const r = await api( 'hero-admin/v1/builders/new', {
-						method: 'POST',
-						body: JSON.stringify( { builder: b.dataset.newbuilder, type: 'pages' } ),
-					} );
-					// Hand the tab to the builder — its surface is another app.
-					location.href = r.edit_url;
-				} catch ( e ) {
-					toast( e.message, true );
-				}
-			} )
-		);
+		const bindNewTypeRows = () =>
+			$$( 'button[data-newtype]', menu ).forEach( ( b ) =>
+				b.addEventListener( 'click', () => {
+					menu.remove();
+					newContent( b.dataset.newtype );
+				} )
+			);
+		bindNewTypeRows();
+		if ( ! state.cache.types ) {
+			loadTypes().then( () => {
+				if ( ! document.body.contains( menu ) ) return;
+				menu.innerHTML = menuHtml();
+				bindNewTypeRows();
+				bindNewBuilderRows();
+			} ).catch( () => {} );
+		}
+		const bindNewBuilderRows = () =>
+			$$( 'button[data-newbuilder]', menu ).forEach( ( b ) =>
+				b.addEventListener( 'click', async () => {
+					menu.remove();
+					// Name from the registry, not button textContent — that would
+					// drag the row-icon glyph into the toast.
+					const reg = ( B.builders || [] ).find( ( x ) => x.id === b.dataset.newbuilder );
+					toast( `Creating page in ${ reg ? reg.name : 'builder' }…` );
+					try {
+						const r = await api( 'hero-admin/v1/builders/new', {
+							method: 'POST',
+							body: JSON.stringify( { builder: b.dataset.newbuilder, type: 'pages' } ),
+						} );
+						// Hand the tab to the builder — its surface is another app.
+						location.href = r.edit_url;
+					} catch ( e ) {
+						toast( e.message, true );
+					}
+				} )
+			);
+		bindNewBuilderRows();
 		setTimeout( () => {
 			const close = ( ev ) => {
 				if ( ! menu.contains( ev.target ) ) menu.remove();
