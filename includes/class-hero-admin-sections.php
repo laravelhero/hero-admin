@@ -16,14 +16,48 @@ defined( 'ABSPATH' ) || exit;
 
 class Hero_Admin_Sections {
 
-	const POST_TYPE = 'hero_section';
-	const META_TPL  = '_hero_section_template';
-	const META_DATA = '_hero_section_data';
+	const POST_TYPE   = 'hero_section';
+	const META_TPL    = '_hero_section_template';
+	const META_DATA   = '_hero_section_data';
+	/** Ordered section ids attached to a regular post/page/CPT item. */
+	const META_ATTACH = '_hero_sections';
 
 	public static function init() {
 		add_action( 'init', array( __CLASS__, 'register_post_type' ), 5 );
 		add_action( 'rest_api_init', array( __CLASS__, 'register_admin_routes' ) );
+		add_action( 'rest_api_init', array( __CLASS__, 'register_attach_routes' ) );
 		add_action( 'rest_api_init', array( __CLASS__, 'register_public_routes' ) );
+		// Expose attached sections as a tickable field in the Hero API
+		// manager — any post type can then serve its sections, in order.
+		add_filter( 'hero_admin_api_fields', array( __CLASS__, 'register_api_field' ) );
+	}
+
+	/** The 'sections' field for hero-api payloads: attached sections in saved order. */
+	public static function register_api_field( $fields ) {
+		$fields['sections'] = array(
+			'label' => 'Sections',
+			'desc'  => 'Attached sections (published only), in their drag-and-drop order.',
+			'value' => array( __CLASS__, 'attached_public' ),
+		);
+		return $fields;
+	}
+
+	/** Published attached sections of a post, shaped for the public API. */
+	public static function attached_public( WP_Post $post ) {
+		$out = array();
+		foreach ( self::attached_ids( $post->ID ) as $sid ) {
+			$section = get_post( $sid );
+			if ( $section && self::POST_TYPE === $section->post_type && 'publish' === $section->post_status ) {
+				$out[] = self::public_shape( $section );
+			}
+		}
+		return $out;
+	}
+
+	/** Sanitized ordered id list from meta. */
+	public static function attached_ids( $post_id ) {
+		$raw = get_post_meta( $post_id, self::META_ATTACH, true );
+		return is_array( $raw ) ? array_values( array_unique( array_map( 'absint', $raw ) ) ) : array();
 	}
 
 	/** Hidden storage type: no wp-admin UI, no public URLs — Hero owns the surface. */
@@ -309,6 +343,66 @@ class Hero_Admin_Sections {
 				),
 			)
 		);
+	}
+
+	/** Attach panel routes: what's on this post + the pickable catalog. */
+	public static function register_attach_routes() {
+		register_rest_route(
+			'hero-admin/v1',
+			'/sections/attached/(?P<post>\\d+)',
+			array(
+				array(
+					'methods'             => 'GET',
+					'callback'            => array( __CLASS__, 'attached_get' ),
+					'permission_callback' => array( __CLASS__, 'can_edit_target' ),
+				),
+				array(
+					'methods'             => 'POST',
+					'callback'            => array( __CLASS__, 'attached_save' ),
+					'permission_callback' => array( __CLASS__, 'can_edit_target' ),
+				),
+			)
+		);
+	}
+
+	public static function can_edit_target( WP_REST_Request $request ) {
+		return current_user_can( 'edit_post', (int) $request['post'] );
+	}
+
+	public static function attached_get( WP_REST_Request $request ) {
+		$catalog = array();
+		foreach ( get_posts(
+			array(
+				'post_type'      => self::POST_TYPE,
+				'post_status'    => array( 'publish', 'draft' ),
+				'posts_per_page' => 200,
+				'orderby'        => 'title',
+				'order'          => 'ASC',
+			)
+		) as $section ) {
+			$catalog[] = array(
+				'id'       => (int) $section->ID,
+				'title'    => $section->post_title,
+				'template' => (string) get_post_meta( $section->ID, self::META_TPL, true ),
+				'status'   => $section->post_status,
+			);
+		}
+		return array(
+			'attached' => self::attached_ids( (int) $request['post'] ),
+			'catalog'  => $catalog,
+		);
+	}
+
+	public static function attached_save( WP_REST_Request $request ) {
+		$ids   = array();
+		foreach ( (array) $request->get_param( 'sections' ) as $sid ) {
+			$section = get_post( absint( $sid ) );
+			if ( $section && self::POST_TYPE === $section->post_type && ! in_array( (int) $section->ID, $ids, true ) ) {
+				$ids[] = (int) $section->ID;
+			}
+		}
+		update_post_meta( (int) $request['post'], self::META_ATTACH, $ids );
+		return array( 'saved' => true, 'attached' => $ids );
 	}
 
 	private static function template_index() {
